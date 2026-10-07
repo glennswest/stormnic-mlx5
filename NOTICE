@@ -1,0 +1,6 @@
+stormnic-mlx5
+=============
+
+An original Rust implementation, licensed MIT (see LICENSE).
+
+Acknowledgement: hardware facts are learned from NVIDIA/Mellanox's public ConnectX-4 PRM. No source code is copied.
