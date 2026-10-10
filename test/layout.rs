@@ -79,7 +79,7 @@ fn names() {
 }
 
 #[test]
-fn short_frame_is_all_inline_in_one_wqebb() {
+fn minimum_frame_is_all_inline_in_two_wqebbs() {
     let frame: Vec<u8> = (0..60u8).collect();
     let mut w = [0u8; wqe::MAX];
     let bbs = wqe::send(&mut w, 0x1234, 0x56, &frame, 0x100, 0x1000);
