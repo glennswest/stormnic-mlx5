@@ -86,7 +86,7 @@ struct Ring {
 
 impl Ring {
     fn entry(&self, i: u32) -> Mem {
-        self.buf.slice(((i & ((1 << self.log) - 1)) as usize) * 64, 64)
+        self.buf.slice(((i & ((1 << self.log) - 1)) as usize) * cqe::SIZE, cqe::SIZE)
     }
 }
 
@@ -333,6 +333,8 @@ impl Eth {
             if opcode == cqe::OP_REQ_ERR {
                 self.log_error("send", &e);
                 self.broken = true;
+            } else if opcode != cqe::OP_REQ {
+                trace!("stormnic-mlx5: send CQE opcode {opcode:#x}");
             }
             // Completions come in order; retire everything up to this WQE.
             while let Some(p) = self.inflight.pop_front() {

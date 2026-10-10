@@ -34,10 +34,6 @@ pub fn put64(b: &mut [u8], off: usize, v: u64) {
     b[off..off + 8].copy_from_slice(&v.to_be_bytes());
 }
 
-pub fn get64(b: &[u8], off: usize) -> u64 {
-    u64::from_be_bytes(b[off..off + 8].try_into().unwrap())
-}
-
 /// A command input's header (PRM Table 99/100): opcode in 00h 31:16,
 /// op_mod in 04h 15:0.
 pub fn header(b: &mut [u8], opcode: u16, op_mod: u16) {

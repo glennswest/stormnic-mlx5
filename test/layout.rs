@@ -30,7 +30,6 @@ fn sixty_four_bit_values_are_high_dword_first() {
     let mut b = [0u8; 8];
     put64(&mut b, 0, 0x1122_3344_5566_7788);
     assert_eq!(b, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
-    assert_eq!(get64(&b, 0), 0x1122_3344_5566_7788);
 }
 
 #[test]
@@ -115,7 +114,7 @@ fn long_frame_inlines_the_headers_and_points_at_the_rest() {
     assert_eq!(get(&w, 0x70, 31, 31), 0);
     assert_eq!(get(&w, 0x70, 30, 0), (1514 - wqe::INLINE_MAX) as u32);
     assert_eq!(get(&w, 0x74, 31, 0), 0xabcd);
-    assert_eq!(get64(&w, 0x78), 0x2000 + wqe::INLINE_MAX as u64);
+    assert_eq!(u64::from_be_bytes(w[0x78..0x80].try_into().unwrap()), 0x2000 + wqe::INLINE_MAX as u64);
 }
 
 #[test]

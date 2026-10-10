@@ -51,10 +51,6 @@ impl DmaBuf {
         }
     }
 
-    pub fn mem(&self) -> Mem {
-        self.mem
-    }
-
     /// Unmap and free.
     ///
     /// # Safety
