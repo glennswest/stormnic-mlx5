@@ -3,4 +3,7 @@ stormnic-mlx5
 
 An original Rust implementation, licensed MIT (see LICENSE).
 
-Acknowledgement: hardware facts are learned from NVIDIA/Mellanox's public ConnectX-4 PRM. No source code is copied.
+Acknowledgement: the hardware facts are learned from NVIDIA/Mellanox's public
+"Mellanox Adapters Programmer's Reference Manual (PRM) Supporting ConnectX-4
+and ConnectX-4 Lx", Rev 0.40 (MLNX-15-4845, 2016). No source code is copied;
+nothing comes from the Linux mlx5 driver or iPXE's golan/flexboot drivers.
