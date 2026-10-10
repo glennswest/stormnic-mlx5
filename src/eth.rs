@@ -12,6 +12,8 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::sync::atomic::{fence, Ordering};
 
+use core::time::Duration;
+
 use uefi::boot;
 
 use crate::cmd::BAR;
@@ -242,7 +244,7 @@ impl Eth {
             if self.link || waited >= ms {
                 break;
             }
-            boot::stall(100_000);
+            boot::stall(Duration::from_millis(100));
             waited += 100;
         }
         trace!(

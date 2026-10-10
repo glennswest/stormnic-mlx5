@@ -8,6 +8,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use core::time::Duration;
+
 use uefi::boot;
 
 use crate::cmd::{self, init, Cmdq, Error};
@@ -370,7 +372,7 @@ fn bring_up(h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
             alarm!("stormnic-mlx5: the device stayed `initializing` for {} s (init segment 1FCh = {v:#010x})", INIT_WAIT_MS / 1000);
             return Err(Failed);
         }
-        boot::stall(1000);
+        boot::stall(Duration::from_millis(1));
         waited += 1;
     }
     trace!("  command queue at {a:#x}, device ready after {waited} ms");

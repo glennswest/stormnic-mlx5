@@ -8,6 +8,8 @@
 
 use core::sync::atomic::{fence, Ordering};
 
+use core::time::Duration;
+
 use uefi::boot;
 
 use crate::dma::{DmaBuf, Mem};
@@ -202,7 +204,7 @@ impl Cmdq {
                 self.stuck = true;
                 return Err(Error::Timeout);
             }
-            boot::stall(100);
+            boot::stall(Duration::from_micros(100));
             waited += 1;
         }
         fence(Ordering::SeqCst);
