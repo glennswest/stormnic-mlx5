@@ -377,7 +377,19 @@ fn bring_up(h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
     }
     trace!("  command queue at {a:#x}, device ready after {waited} ms");
 
-    h.simple(pci, op::ENABLE_HCA, 0, &[])?;
+    // A function another driver left running (FlexBoot, disconnected by
+    // stormbootx's prefer_media_drivers) may refuse ENABLE_HCA: shut it
+    // down the hard way once and retry (docs/spec/cmd.md HW-CHECK 6).
+    let i = input(op::ENABLE_HCA, 0, 16);
+    let mut o = [0u8; 16];
+    if let Err(e) = h.try_exec(pci, &i, &mut o) {
+        say!("stormnic-mlx5: ENABLE_HCA: {e}; the function may still be set up by another driver, resetting it");
+        let mut t = input(op::TEARDOWN_HCA, 0, 16);
+        put(&mut t, 0x08, 15, 0, 1);
+        let _ = h.try_exec(pci, &t, &mut o);
+        let _ = h.try_exec(pci, &input(op::DISABLE_HCA, 0, 16), &mut o);
+        h.exec(pci, &i, &mut o)?;
+    }
     h.enabled = true;
 
     // ISSI (PRM 7.1): BAD_OP means ISSI 0 only, and no SET_ISSI.
