@@ -63,6 +63,7 @@ pub struct Caps {
     pub ft_support: bool,
     pub max_ft_level: u32,
     pub log_max_ft_size: u32,
+    pub modify_root: bool,
 }
 
 /// Pages lent to the firmware: one allocation.
@@ -264,9 +265,11 @@ impl Hca {
             c.ft_support = get(&f, 0x40, 31, 31) != 0;
             c.log_max_ft_size = get(&f, 0x44, 29, 24);
             c.max_ft_level = get(&f, 0x44, 7, 0);
+            c.modify_root = get(&f, 0x40, 27, 27) != 0;
             trace!(
-                "    NIC RX flow table: supported {} log_max_ft_size {} max_ft_level {} dmac match {}",
+                "    NIC RX flow table: supported {} modify_root {} log_max_ft_size {} max_ft_level {} dmac match {}",
                 c.ft_support,
+                c.modify_root,
                 c.log_max_ft_size,
                 c.max_ft_level,
                 get(&f, 0x60, 31, 31)

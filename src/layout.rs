@@ -266,3 +266,112 @@ pub fn health_name(s: u8) -> &'static str {
         _ => "?",
     }
 }
+
+/// Send WQEs (docs/spec/datapath.md 4; PRM 7.4.4.1, Tables 25–28, 38).
+pub mod wqe {
+    use super::put;
+
+    /// Send WQE basic block (PRM 7.4.1.1).
+    pub const WQEBB: usize = 64;
+    /// Largest WQE built: 2 WQEBBs.
+    pub const MAX: usize = 2 * WQEBB;
+    /// Bytes inlined in the Ethernet segment, at most: what fits in a
+    /// 2-WQEBB WQE beside the control, Ethernet and pointer segments
+    /// (2 + 5 octowords). Enough for the L2, IP and TCP/UDP headers of an
+    /// ordinary frame, so every `min_wqe_inline_mode` up to TCP/UDP is met.
+    pub const INLINE_MAX: usize = 2 + 5 * 16;
+    pub const OPCODE_SEND: u32 = 0x0a;
+    /// Ctrl 08h bits 3:2: CQE on every completion.
+    const CE_ALWAYS: u32 = 0b10;
+
+    /// Build the send WQE for `frame` at WQE index `index` of SQ `sqn` into
+    /// `w`: the first `INLINE_MAX` bytes (or the whole frame) inline, the
+    /// rest by pointer at `addr + inlined` with `lkey`. Returns the WQE's
+    /// size in WQEBBs. `w` is zeroed first.
+    pub fn send(w: &mut [u8; MAX], index: u16, sqn: u32, frame: &[u8], lkey: u32, addr: u64) -> usize {
+        *w = [0; MAX];
+        let n = frame.len().min(INLINE_MAX);
+        // Ethernet segment at 10h: inline_header_size 0Ch 25:16, then the
+        // inline bytes from segment byte 0Eh on.
+        put(w, 0x1c, 25, 16, n as u32);
+        w[0x1e..0x1e + n].copy_from_slice(&frame[..n]);
+        let eth_octowords = 1 + n.saturating_sub(2).div_ceil(16);
+        let mut ds = 1 + eth_octowords;
+        let rest = frame.len() - n;
+        if rest > 0 {
+            let at = 16 * ds;
+            put(w, at, 30, 0, rest as u32);
+            put(w, at + 4, 31, 0, lkey);
+            super::put64(w, at + 8, addr + n as u64);
+            ds += 1;
+        }
+        // Control segment at 00h.
+        put(w, 0x00, 23, 8, u32::from(index));
+        put(w, 0x00, 7, 0, OPCODE_SEND);
+        put(w, 0x04, 31, 8, sqn);
+        put(w, 0x04, 5, 0, ds as u32);
+        put(w, 0x08, 3, 2, CE_ALWAYS);
+        ds.div_ceil(4)
+    }
+}
+
+/// CQE and EQE fields (docs/spec/datapath.md 8, 9; PRM Tables 67, 77).
+pub mod cqe {
+    pub const SIZE: usize = 64;
+    /// Byte 3Fh: opcode 7:4, cqe_format 3:2, se 1, owner 0.
+    pub const OP_OWN: usize = 0x3f;
+    /// The value every CQE starts with: opcode invalid (0xF), owner HW (1).
+    pub const INIT: u8 = 0xf1;
+    pub const OP_REQ: u8 = 0x0;
+    pub const OP_RESP_SEND: u8 = 0x2;
+    pub const OP_REQ_ERR: u8 = 0xd;
+    pub const OP_RESP_ERR: u8 = 0xe;
+    pub const OP_INVALID: u8 = 0xf;
+    pub const BYTE_CNT: usize = 0x2c;
+    /// 3Ch 31:16.
+    pub const WQE_COUNTER: usize = 0x3c;
+    /// Error CQE 34h: vendor syndrome 15:8, syndrome 7:0.
+    pub const ERR_SYNDROME: usize = 0x37;
+    pub const ERR_VENDOR: usize = 0x36;
+
+    /// Is the entry the consumer counter `cc` points at software's?
+    /// (PRM 7.12.3.1: owner equals the counter's wrap bit; an invalid
+    /// opcode is never software's.)
+    pub fn ready(op_own: u8, cc: u32, log_size: u32) -> bool {
+        let owner = u32::from(op_own & 1);
+        owner == (cc >> log_size) & 1 && op_own >> 4 != OP_INVALID
+    }
+
+    /// The same for an EQE, which has no opcode (PRM 7.13.2.1).
+    pub fn eqe_ready(owner_byte: u8, cc: u32, log_size: u32) -> bool {
+        u32::from(owner_byte & 1) == (cc >> log_size) & 1
+    }
+}
+
+/// The speed PTYS `eth_proto_oper` names (PRM Table 108).
+pub fn speed_name(oper: u32) -> &'static str {
+    const NAMES: &[(u32, &str)] = &[
+        (31, "50G"),
+        (30, "50G"),
+        (29, "25G"),
+        (28, "25G"),
+        (27, "25G"),
+        (22, "100G"),
+        (21, "100G"),
+        (20, "100G"),
+        (18, "50G"),
+        (16, "40G"),
+        (15, "40G"),
+        (14, "10G"),
+        (13, "10G"),
+        (12, "10G"),
+        (7, "40G"),
+        (6, "40G"),
+        (4, "10G"),
+        (3, "10G"),
+        (2, "10G"),
+        (1, "1G"),
+        (0, "1G"),
+    ];
+    NAMES.iter().find(|(b, _)| oper & (1 << b) != 0).map_or("", |(_, n)| n)
+}

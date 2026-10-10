@@ -77,3 +77,68 @@ fn names() {
     assert_eq!(delivery_name(0x1), "signature error");
     assert_eq!(health_name(0x7), "DEAD_IRISC");
 }
+
+#[test]
+fn short_frame_is_all_inline_in_one_wqebb() {
+    let frame: Vec<u8> = (0..60u8).collect();
+    let mut w = [0u8; wqe::MAX];
+    let bbs = wqe::send(&mut w, 0x1234, 0x56, &frame, 0x100, 0x1000);
+    // ctrl + eth (1 + ceil(58/16) = 5) = 6 octowords → 2 WQEBBs.
+    assert_eq!(get(&w, 0x04, 5, 0), 6);
+    assert_eq!(bbs, 2);
+    assert_eq!(get(&w, 0x00, 23, 8), 0x1234);
+    assert_eq!(get(&w, 0x00, 7, 0), 0x0a);
+    assert_eq!(get(&w, 0x04, 31, 8), 0x56);
+    assert_eq!(w[0x0b], 0x08);
+    assert_eq!(get(&w, 0x1c, 25, 16), 60);
+    assert_eq!(&w[0x1e..0x1e + 60], &frame[..]);
+}
+
+#[test]
+fn small_frame_fits_one_wqebb() {
+    let frame = [0xaau8; 18];
+    let mut w = [0u8; wqe::MAX];
+    // ctrl + eth (1 + 1) = 3 octowords.
+    assert_eq!(wqe::send(&mut w, 0, 1, &frame, 0, 0), 1);
+    assert_eq!(get(&w, 0x04, 5, 0), 3);
+}
+
+#[test]
+fn long_frame_inlines_the_headers_and_points_at_the_rest() {
+    let frame = vec![0x55u8; 1514];
+    let mut w = [0u8; wqe::MAX];
+    let bbs = wqe::send(&mut w, 7, 9, &frame, 0xabcd, 0x2000);
+    assert_eq!(bbs, 2);
+    assert_eq!(get(&w, 0x04, 5, 0), 8);
+    assert_eq!(get(&w, 0x1c, 25, 16), wqe::INLINE_MAX as u32);
+    // The pointer segment is the eighth octoword.
+    assert_eq!(get(&w, 0x70, 31, 31), 0);
+    assert_eq!(get(&w, 0x70, 30, 0), (1514 - wqe::INLINE_MAX) as u32);
+    assert_eq!(get(&w, 0x74, 31, 0), 0xabcd);
+    assert_eq!(get64(&w, 0x78), 0x2000 + wqe::INLINE_MAX as u64);
+}
+
+#[test]
+fn cqe_ownership_follows_the_wrap_bit() {
+    // Before the device writes anything, nothing is ready.
+    assert!(!cqe::ready(cqe::INIT, 0, 4));
+    // First pass: owner 0 is software's.
+    assert!(cqe::ready(0x20, 3, 4));
+    assert!(!cqe::ready(0x21, 3, 4));
+    // Second pass (counter 16..31 with 16 entries): owner 1.
+    assert!(cqe::ready(0x21, 16, 4));
+    assert!(!cqe::ready(0x20, 16, 4));
+    // An invalid opcode never is.
+    assert!(!cqe::ready(0xf0, 0, 4));
+    assert!(!cqe::eqe_ready(1, 0, 6));
+    assert!(cqe::eqe_ready(0, 0, 6));
+    assert!(cqe::eqe_ready(1, 64, 6));
+}
+
+#[test]
+fn speeds() {
+    assert_eq!(speed_name(1 << 13), "10G");
+    assert_eq!(speed_name(1 << 27), "25G");
+    assert_eq!(speed_name(1 << 1), "1G");
+    assert_eq!(speed_name(0), "");
+}
