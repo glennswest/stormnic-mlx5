@@ -8,6 +8,9 @@ license = "MIT"
 [[bin]]
 name = "stormnic-mlx5"
 path = "src/main.rs"
+# A UEFI image: no std test harness (host tests are test/*.rs, scripts/test-host.sh).
+test = false
+bench = false
 
 [features]
 # Print the whole bring-up trace on the console at every boot. Without it the
