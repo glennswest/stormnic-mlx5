@@ -234,7 +234,7 @@ impl Child {
         &mut n.eth
     }
 
-    fn num(&mut self) -> u8 {
+    fn num(&mut self) -> u32 {
         self.port().num()
     }
 
