@@ -641,14 +641,19 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
     pas(&mut i, 0x110, &e.rq_buf);
     e.rqn = create_id(h, pci, &i)?;
     e.made.rq = true;
+    // The WQEs are written now, but the doorbell record must read 0 until
+    // the RQ is RDY (datapath.md 6.5); then it hands them all over.
     let lkey = e.lkey;
     for _ in 0..1u32 << LOG_RQ {
         e.post_rx(lkey);
     }
+    e.dbr.set_be32(DBR_RQ, 0);
     let mut i = input(op::MODIFY_RQ, 0, 0x118);
     put(&mut i, 0x08, 23, 0, e.rqn);
     put(&mut i, 0x20, 23, 20, 1);
     h.exec(pci, &i, &mut o)?;
+    fence(Ordering::SeqCst);
+    e.dbr.set_be32(DBR_RQ, u32::from(e.rq_pc));
 
     // Direct TIR, own frames not looped back (datapath.md 6.2, steering.md 7).
     let mut i = input(op::CREATE_TIR, 0, 0x110);
