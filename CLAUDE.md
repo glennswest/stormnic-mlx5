@@ -78,7 +78,7 @@ stormbootx boot test does not touch the shelf).
 - [x] SNP on a child handle: Transmit/Receive/GetStatus, ExitBootServices teardown.
 - [x] Spec notes `docs/spec/` (cmd.md, datapath.md, steering.md: PRM tables per step, HW-CHECKs).
 - [x] Docs say the R230 has FlexBoot (#2).
-- [ ] The g16 network is jumbo (switch 9216): a frame over the RQ's scatter size is a Local_Length error that
+- [x] The g16 network is jumbo (switch 9216): a frame over the RQ's scatter size is a Local_Length error that
       takes the RQ to ERR for good (PRM 7.12.7), so RX buffers hold any frame the port can pass; oversize frames
       are dropped in software. PMTU traced for the first run.
 - [ ] sc-build passes (subsystem 11, no warnings, host tests, reproducible image).

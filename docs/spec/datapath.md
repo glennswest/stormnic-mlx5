@@ -335,7 +335,11 @@ preceded by a signature segment if `wq_signature`; not used):
   `L_Key = 0x00000100` ends the list early when the stride is larger than the
   WQE (§7.4.1.2). Not needed when the stride holds exactly the entries used.
 - Recommended: one entry per WQE, `log_wq_stride = 4` (16 B), buffer ≥ MTU +
-  18 (VLAN kept, see `vlan_strip_disable`).
+  18 (VLAN kept, see `vlan_strip_disable`). The MTU that counts is the
+  **port's** (PMTU `oper_mtu`, "packets exceeding this size will be dropped"),
+  not the SNP's: a longer frame is Local_Length (§8.3) and the RQ goes to ERR.
+  The driver uses 10 KiB buffers and drops anything over its SNP's 1518 in
+  software, and traces PMTU (**HW-CHECK** that `oper_mtu` stays under that).
 - T40 mentions a `start_padding` field (§3.3.9, only if
   `HCA_CAP.start_pad`) but the drawing does not place it — **HW-CHECK**; leave
   bit 31 = 0.

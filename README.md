@@ -17,6 +17,13 @@ offers no SNP for them. The first target is the Dell R230 test machine
 15b3:1015) (#1): with this driver it boots stormbootx from a USB stick, as
 the X9 blades do, with no iDRAC virtual media and no option ROM.
 
+**The R230's card does carry FlexBoot today**, which holds the NIC, and this
+driver leaves a NIC another driver holds alone (#2). So it binds there only
+once FlexBoot is out of the way: stormbootx#131 (`prefer_media_drivers = mlx5`
+disconnects it, on media that ask for that) or stormcentral#552's BIOS job
+(the card's option ROM off). A function FlexBoot left initialized is reset
+before ENABLE_HCA (`docs/spec/cmd.md` HW-CHECK 6).
+
 ## Hardware
 
 | PCI ID | Family | Run on |
@@ -61,7 +68,7 @@ the crate is MIT ([`NOTICE`](NOTICE)).
   TEARDOWN_HCA, every page reclaimed, DISABLE_HCA.
 - `src/eth.rs`: the vport (admin up, permanent MAC, own MAC in the unicast
   list, promiscuous), one EQ for page requests, port changes and CQ errors,
-  a send CQ/SQ behind a TIS, a receive CQ/RQ (256 × 2 KiB) behind a direct
+  a send CQ/SQ behind a TIS, a receive CQ/RQ (256 × 10 KiB, so a jumbo frame cannot put the RQ in error) behind a direct
   TIR with self-loopback off, and a NIC RX flow table whose match-all entry
   forwards to the TIR. Link and speed from PAOS/PTYS. All polled.
 - `src/snp.rs`: the SNP on a child handle with a MAC device path.
@@ -88,7 +95,8 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
   `EFI_SIMPLE_NETWORK_PROTOCOL` (revision 0x00010000).
 - **SNP:** MaxPacketSize 1500, MediaHeaderSize 14, receive filters unicast,
   broadcast and up to 16 multicast addresses, applied in software (the
-  hardware delivers every frame the vport takes), MAC not changeable,
+  hardware delivers every frame the vport takes), a frame over 1518 bytes is
+  dropped and logged once, MAC not changeable,
   `MediaPresent` from port-change events and PAOS, `WaitForPacket`,
   `MCastIpToMac`. VLAN tags are kept. Own frames are not looped back (TIR
   self-loopback off); one that is, is dropped and logged once.

@@ -10,5 +10,8 @@ fn main() {
         // A PE timestamp derived from the image's contents, not the build
         // time, so the same source gives the same bytes (stormnic-mlx4#13).
         println!("cargo::rustc-link-arg=/Brepro");
+        // No debug directory: its PDB GUID hashes the build path, and it moves
+        // the timestamp with it. stormbootx's nic-drivers build passes the same.
+        println!("cargo::rustc-link-arg=/DEBUG:NONE");
     }
 }

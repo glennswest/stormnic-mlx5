@@ -57,6 +57,8 @@ pub struct Child {
     tx_logged: u32,
     /// An own frame looped back has been logged.
     own_logged: bool,
+    /// A frame over `eth::MAX_FRAME` has been logged.
+    long_logged: bool,
     status_calls: u32,
 }
 
@@ -158,6 +160,7 @@ impl Child {
             rx_logged: 0,
             tx_logged: 0,
             own_logged: false,
+            long_logged: false,
             status_calls: 0,
         });
         c.snp.mode = &raw mut c.mode;
@@ -594,6 +597,16 @@ unsafe extern "efiapi" fn receive(
         };
         let mut h = [0u8; 14];
         if len < h.len() {
+            c.port().pop_rx();
+            continue;
+        }
+        if len > eth::MAX_FRAME {
+            // A jumbo frame on a jumbo network: the SNP says 1500, so no
+            // caller's buffer can take it, and BUFFER_TOO_SMALL would stop
+            // the queue on it.
+            if !core::mem::replace(&mut c.long_logged, true) {
+                say!("stormnic-mlx5: port {} rx: {len}-byte frame is over the {} this SNP carries, dropped; no more logged", c.num(), eth::MAX_FRAME);
+            }
             c.port().pop_rx();
             continue;
         }

@@ -24,9 +24,15 @@ use crate::pci::PciIo;
 
 /// The largest frame handed to or taken from the SNP: 1500 + 14 + a VLAN tag.
 pub const MAX_FRAME: usize = 1518;
-/// Receive buffer per WQE: a frame, a second VLAN tag and an FCS if the
-/// device scatters one (docs/spec/datapath.md HW-CHECK).
-const RX_BUF: usize = 2048;
+/// Receive buffer per WQE: bigger than any frame the port should pass, not
+/// only the ones the SNP hands on. The Dell's network is jumbo (switch 9216)
+/// and the vport is promiscuous, so a flooded jumbo frame reaches the RQ; one
+/// over the scatter size is a Local_Length error, which takes the RQ to ERR
+/// (PRM 7.12.7), and then nothing is received again. `snp.rs` drops whatever
+/// is over `MAX_FRAME`.
+const RX_BUF: usize = 10 * 1024;
+/// Send copy buffer per slot: `MAX_FRAME` fits.
+const TX_BUF: usize = 2048;
 
 /// Queue sizes (log2). The EQ carries only page requests and port events.
 const LOG_EQ: u32 = 6;
@@ -40,6 +46,7 @@ const LOG_RQ_STRIDE: u32 = 4;
 const TX_SLOTS: usize = 1 << LOG_SQ;
 
 /// Port registers (PRM 11.1, Table 104) and the local port of a PF.
+const REG_PMTU: u32 = 0x5003;
 const REG_PTYS: u32 = 0x5004;
 const REG_PAOS: u32 = 0x5006;
 const LOCAL_PORT: u32 = 1;
@@ -444,7 +451,7 @@ impl Eth {
         }
         let index = self.sq_pc;
         let slot = usize::from(index) % TX_SLOTS;
-        let b = self.tx_bufs.slice(slot * RX_BUF, RX_BUF);
+        let b = self.tx_bufs.slice(slot * TX_BUF, TX_BUF);
         b.write(0, frame);
         let mut w = [0u8; wqe::MAX];
         let bbs = wqe::send(&mut w, index, self.sqn, frame, self.lkey, b.dev);
@@ -482,7 +489,7 @@ pub fn open(h: &mut Hca, pci: &mut PciIo) -> Result<Eth, Failed> {
         tx_cq: Ring { buf: dma(pci, 64 << LOG_TX_CQ, "send CQ")?, num: 0, log: LOG_TX_CQ, cc: 0 },
         rx_cq: Ring { buf: dma(pci, 64 << LOG_RX_CQ, "receive CQ")?, num: 0, log: LOG_RX_CQ, cc: 0 },
         sq_buf: dma(pci, wqe::WQEBB << LOG_SQ, "SQ")?,
-        tx_bufs: dma(pci, TX_SLOTS * RX_BUF, "send buffers")?,
+        tx_bufs: dma(pci, TX_SLOTS * TX_BUF, "send buffers")?,
         rq_buf: dma(pci, 16 << LOG_RQ, "RQ")?,
         rx_bufs: dma(pci, RX_BUF << LOG_RQ, "receive buffers")?,
         tis: 0,
@@ -694,6 +701,16 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
         "  data path: EQ {} CQs {}/{} TIS {} SQ {} RQ {} TIR {} flow table {} group {}, inline mode {min_inline}",
         e.eq.num, e.tx_cq.num, e.rx_cq.num, e.tis, e.sqn, e.rqn, e.tir, e.ft, e.fg
     );
+
+    // What the port passes (PMTU, PRM Table 106), for the first runs: the unit
+    // is a HW-CHECK (docs/spec/cmd.md) and RX_BUF assumes it stays under 10 KiB.
+    if let Ok(p) = read_reg(h, pci, REG_PMTU, 16) {
+        let oper = get(&p, 0x0c, 31, 16);
+        trace!("  PMTU: max {}, admin {}, oper {oper}", get(&p, 0x04, 31, 16), get(&p, 0x08, 31, 16));
+        if oper as usize > RX_BUF {
+            say!("stormnic-mlx5: port MTU {oper} is over the {RX_BUF}-byte receive buffers: a frame that long stops receive");
+        }
+    }
 
     // Bring the port up if it was administratively down (PAOS, docs/spec/cmd.md 6.21).
     if let Ok(paos) = read_reg(h, pci, REG_PAOS, 16) {
