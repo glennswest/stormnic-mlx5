@@ -5,7 +5,10 @@ Mellanox ConnectX-4 / 4 Lx / 5 / 6 Ethernet (the Linux `mlx5` family). It is
 loaded by stormbootx from `\stormboot\drivers` on its rustnic media, on
 machines whose firmware has no UEFI driver for the NIC. The first target is
 the Dell R230 test machine (C2NR0Q2), which carries a ConnectX-4 Lx
-(MT27710 family, 15b3:1015) and no FlexBoot UEFI (#1). Read README.md first.
+(MT27710 family, 15b3:1015). **Its card firmware carries FlexBoot**, Mellanox's
+UEFI driver, which holds the NIC, so this driver declines there (#2) until
+stormbootx#131 (`prefer_media_drivers = mlx5`, take-over) or stormcentral#552's
+BIOS job (the card's option ROM off) removes FlexBoot. Read README.md first.
 
 Read the cross-project rules in `../CLAUDE.md` first. In particular, **build
 with `sc-build` after pushing, never on this VM and never as root**, and
@@ -65,13 +68,23 @@ stormbootx boot test does not touch the shelf).
 
 #1 — bind, link, transmit/receive; pinned in stormbootx's nic-drivers (P1, owner 2026-10-10).
 
-- [ ] Crate scaffold from stormnic-mlx4's shape (binding, PciIo, DMA, console/trace, verbose switch,
+- [x] Crate scaffold from stormnic-mlx4's shape (binding, PciIo, DMA, console/trace, verbose switch,
       reproducible build), PCI IDs checked against pci.ids.
-- [ ] Command interface (PRM 7.14, 8.2): init segment, cmdq, mailboxes + signatures, polling.
-- [ ] Bring-up: ENABLE_HCA, ISSI, pages (QUERY/MANAGE_PAGES), QUERY/SET_HCA_CAP, INIT_HCA, teardown.
-- [ ] Objects: UAR, PD, transport domain, MKey (PA, reserved lkey), EQ (pages/port events), CQ×2, TIS, SQ, RQ, TIR,
+- [x] Command interface (PRM 7.14, 8.2): init segment, cmdq, mailboxes + signatures, polling.
+- [x] Bring-up: ENABLE_HCA, ISSI, pages (QUERY/MANAGE_PAGES), QUERY_HCA_CAP, INIT_HCA, teardown. SET_HCA_CAP
+      is not needed: the defaults are used as read.
+- [x] Objects: UAR, PD, transport domain, reserved LKey, EQ (pages/port events), CQ×2, TIS, SQ, RQ, TIR,
       NIC RX flow table + group + match-all entry → TIR, vport context (MAC, promisc), PAOS/PTYS link.
-- [ ] SNP on a child handle: Transmit/Receive/GetStatus, ExitBootServices teardown.
-- [ ] sc-build passes (subsystem 11, no warnings, host tests).
-- [ ] Spec notes `docs/spec/connectx4.md` (which PRM tables each step uses, HW-checks).
-- [ ] Pin request in stormbootx (comment on stormbootx#73); hardware boot on the Dell via the master.
+- [x] SNP on a child handle: Transmit/Receive/GetStatus, ExitBootServices teardown.
+- [x] Spec notes `docs/spec/` (cmd.md, datapath.md, steering.md: PRM tables per step, HW-CHECKs).
+- [x] Docs say the R230 has FlexBoot (#2).
+- [ ] The g16 network is jumbo (switch 9216): a frame over the RQ's scatter size is a Local_Length error that
+      takes the RQ to ERR for good (PRM 7.12.7), so RX buffers hold any frame the port can pass; oversize frames
+      are dropped in software. PMTU traced for the first run.
+- [ ] sc-build passes (subsystem 11, no warnings, host tests, reproducible image).
+- [ ] stormbootx build with this driver, and FlexBoot out of the way: stormbootx#131, stormbootx#73.
+- [ ] Hardware boot on the Dell via the master (`stormcentral wait-hardware`), then answer the HW-CHECK lists and
+      fill in `TESTED` and the README table.
+- [ ] Pin in stormbootx's `build-nic-drivers.sh` (stormbootx#73).
+
+After #1: jumbo frames (MaxPacketSize 9000, PMTU), for stormbootx#165.
