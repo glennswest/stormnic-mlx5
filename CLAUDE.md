@@ -81,10 +81,11 @@ stormbootx boot test does not touch the shelf).
 - [x] The g16 network is jumbo (switch 9216): a frame over the RQ's scatter size is a Local_Length error that
       takes the RQ to ERR for good (PRM 7.12.7), so RX buffers hold any frame the port can pass; oversize frames
       are dropped in software. PMTU traced for the first run.
-- [ ] sc-build passes (subsystem 11, no warnings, host tests, reproducible image).
-- [ ] stormbootx build with this driver, and FlexBoot out of the way: stormbootx#131, stormbootx#73.
+- [x] sc-build passes (subsystem 11, no warnings, host tests, reproducible image): 66de545.
+- [ ] **Waiting:** stormbootx build with this driver, and FlexBoot out of the way: stormbootx#131, stormbootx#73
+      (asked 2026-11-04, ref 66de545). The boot's pass lines are in the last status comment on #1.
 - [ ] Hardware boot on the Dell via the master (`stormcentral wait-hardware`), then answer the HW-CHECK lists and
       fill in `TESTED` and the README table.
 - [ ] Pin in stormbootx's `build-nic-drivers.sh` (stormbootx#73).
 
-After #1: jumbo frames (MaxPacketSize 9000, PMTU), for stormbootx#165.
+After #1: jumbo frames (#7), for stormbootx#165.
