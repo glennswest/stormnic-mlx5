@@ -68,8 +68,8 @@ the crate is MIT ([`NOTICE`](NOTICE)).
   TEARDOWN_HCA, every page reclaimed, DISABLE_HCA.
 - `src/eth.rs`: the vport (admin up, permanent MAC, own MAC in the unicast
   list, promiscuous), one EQ for page requests, port changes and CQ errors,
-  a send CQ/SQ behind a TIS, a receive CQ/RQ (256 × 10 KiB, so a jumbo frame cannot put the RQ in error) behind a direct
-  TIR with self-loopback off, and a NIC RX flow table whose match-all entry
+  a send CQ/SQ behind a TIS, a receive CQ/RQ (256 × 10 KiB, so a jumbo frame cannot put the RQ in
+  error) behind a direct TIR with self-loopback off, and a NIC RX flow table whose match-all entry
   forwards to the TIR. Link and speed from PAOS/PTYS. All polled.
 - `src/snp.rs`: the SNP on a child handle with a MAC device path.
 

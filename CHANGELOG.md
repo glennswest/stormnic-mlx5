@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### 2026-11-04
+- **docs:** Refreshed from the code since 2026-10-14: README, `docs/spec/datapath.md` and CLAUDE.md already match the
+  10 KiB receive buffers, software drop over 1518, PMTU trace and the FlexBoot decline; README line wrap fixed. No
+  promise without code found, so no issue filed.
 - **fix:** Receive buffers are 10 KiB, and a frame over 1518 bytes is dropped in software and logged once. The Dell's
   network is jumbo and the vport promiscuous: a frame over the 2 KiB buffer was a Local_Length error, which takes the RQ
   to ERR for good. PMTU goes to the trace for the first hardware run (#1).
