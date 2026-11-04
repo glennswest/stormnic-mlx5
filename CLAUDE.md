@@ -8,7 +8,8 @@ the Dell R230 test machine (C2NR0Q2), which carries a ConnectX-4 Lx
 (MT27710 family, 15b3:1015). **Its card firmware carries FlexBoot**, Mellanox's
 UEFI driver, which holds the NIC, so this driver declines there (#2) until
 stormbootx#131 (`prefer_media_drivers = mlx5`, take-over) or stormcentral#552's
-BIOS job (the card's option ROM off) removes FlexBoot. Read README.md first.
+BIOS job (the card's option ROM off) removes FlexBoot. stormbootx v0.37.0 has
+the former, on its test medium only so far. Read README.md first.
 
 Read the cross-project rules in `../CLAUDE.md` first. In particular, **build
 with `sc-build` after pushing, never on this VM and never as root**, and
@@ -82,10 +83,12 @@ stormbootx boot test does not touch the shelf).
       takes the RQ to ERR for good (PRM 7.12.7), so RX buffers hold any frame the port can pass; oversize frames
       are dropped in software. PMTU traced for the first run.
 - [x] sc-build passes (subsystem 11, no warnings, host tests, reproducible image): 66de545.
-- [ ] **Waiting:** stormbootx build with this driver, and FlexBoot out of the way: stormbootx#131, stormbootx#73
-      (asked 2026-11-04, ref 66de545). The boot's pass lines are in the last status comment on #1.
-- [ ] Hardware boot on the Dell via the master (`stormcentral wait-hardware`), then answer the HW-CHECK lists and
-      fill in `TESTED` and the README table.
-- [ ] Pin in stormbootx's `build-nic-drivers.sh` (stormbootx#73).
+- [x] stormbootx build with this driver, and a way past FlexBoot: stormbootx#131 done in v0.37.0 (pin 66de545,
+      `prefer_media_drivers = virtio,mlx5` on the verbose test medium `stormbootx-mlx5test`). No source change here
+      since 66de545, so the pin is current.
+- [ ] **Waiting (2026-11-04):** the Dell's boot of `stormbootx-mlx5test`, asked with `wait-hardware`; the master
+      registers that golden first (it did not exist yet when asked).
+- [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
+- [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 
 After #1: jumbo frames (#7), for stormbootx#165.

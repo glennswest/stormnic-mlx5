@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### 2026-11-04
+- **docs:** Work plan: stormbootx#131 is done (v0.37.0, pin 66de545, test medium `stormbootx-mlx5test`), and #1 now
+  waits on the Dell's boot of that medium (#1).
 - **docs:** Refreshed from the code since 2026-10-14: README, `docs/spec/datapath.md` and CLAUDE.md already match the
   10 KiB receive buffers, software drop over 1518, PMTU trace and the FlexBoot decline; README line wrap fixed. No
   promise without code found, so no issue filed.
