@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-11-11
+- **docs:** Refreshed from the code since 2026-11-04: no source change since 66de545, so README, `docs/spec/` and
+  CLAUDE.md already match. No promise without code found, so no issue filed. #1 still waits on the Dell's boot.
+
 ### 2026-11-04
 - **docs:** Work plan: stormbootx#131 is done (v0.37.0, pin 66de545, test medium `stormbootx-mlx5test`), and #1 now
   waits on the Dell's boot of that medium (#1).
