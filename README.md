@@ -138,6 +138,23 @@ down and up if it was already up. No configuration chooses it. If it cannot
 differs, or a link running another FEC), the line says `FEC FAILED: …` and an
 alarm replays the trace. Details: `docs/spec/fec.md`.
 
+**No link (#13):** under a port that has no link once bring-up is done, the
+card's own account of why, one indented line per register group: PDDR's
+troubleshooting page (`monitor_opcode` named, and the firmware's own message),
+operation page (phy manager and AN state machines, negotiation mode,
+loopback), last link-down page, the module's monitors (voltage, temperature,
+rx/tx power, bias per lane) and latched flags (rx_los, tx_fault, …), PTYS
+capability/admin/oper with `an_status` and `an_disable_*`, PAOS, PPLM raw and
+PMLP's lane map:
+
+```
+    port 1: PDDR troubleshooting: monitor_opcode 57 (signal not detected), firmware says "…"
+    port 1: PTYS: eth_proto_capability 0x38000000 (25GBASE-SR,25GBASE-KR,25GBASE-CR), eth_proto_admin …, an_status 4 (AN not performed, link down), …
+```
+
+A linked port stays one line; the same lines go to the trace, to compare
+with a port that is down. Details: `docs/spec/linkdiag.md`.
+
 plus warnings and failures. A failure first replays the last 16 trace lines.
 Verbose prints every command (`    INIT_HCA (0x0): ok`), the capabilities, the
 pages lent, the vport state and the data-path object numbers.
@@ -147,7 +164,7 @@ pages lent, the vport state and the data-path object numbers.
 `scripts/test-host.sh` runs the host tests of the UEFI-free code
 (`test/layout.rs`: bit fields, command header, entry and mailbox signatures,
 send WQE construction, CQE/EQE ownership, PTYS speeds and media, the standard FEC per media, PPLM's
-read-modify-write, PDDR's module page, the per-port report line; `test/trace.rs`: the
+read-modify-write, PDDR's module page, the per-port report line, the no-link diagnosis lines; `test/trace.rs`: the
 replay ring).
 
 On metal: only the Dell (C2NR0Q2) has an mlx5 card, and no pve VM can present

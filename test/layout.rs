@@ -331,3 +331,127 @@ fn report_line() {
     r.cap = 0;
     assert!(r.to_string().contains("media unknown (PTYS names no protocol), FEC FAILED: no media"));
 }
+
+/// A PDDR read with page data written at page offsets (from 08h).
+fn pddr_page() -> Vec<u8> {
+    vec![0u8; pddr::LEN]
+}
+fn pp(r: &mut [u8], off: usize, hi: u32, lo: u32, v: u32) {
+    put(r, 0x08 + off, hi, lo, v);
+}
+
+#[test]
+fn troubleshooting_names_the_opcode_and_quotes_the_firmware() {
+    let mut r = pddr_page();
+    pp(&mut r, 0x04, 15, 0, 57);
+    let msg = b"Signal not detected\0junk";
+    r[0x08 + 0x0c..0x08 + 0x0c + msg.len()].copy_from_slice(msg);
+    assert_eq!(
+        diag::Troubleshooting(&r).to_string(),
+        "PDDR troubleshooting: monitor_opcode 57 (signal not detected), firmware says \"Signal not detected\""
+    );
+    let r = pddr_page();
+    assert_eq!(diag::Troubleshooting(&r).to_string(), "PDDR troubleshooting: monitor_opcode 0 (no issue observed)");
+    assert_eq!(diag::Troubleshooting(&r[..4]).to_string(), "PDDR troubleshooting: short read (4 bytes)");
+    assert_eq!(diag::Troubleshooting(&r[..4]).opcode(), None);
+    for (op, s) in [(1, "port closed"), (3, "auto-negotiation"), (60, "no partner"), (14, "remote fault"), (1024, "unplugged"), (9999, "not in the adb")] {
+        assert!(diag::monitor_opcode(op).contains(s), "{op}");
+    }
+}
+
+#[test]
+fn operation_page_fsms() {
+    let mut r = pddr_page();
+    pp(&mut r, 0x04, 31, 24, 2);
+    pp(&mut r, 0x04, 23, 16, 2);
+    pp(&mut r, 0x00, 23, 20, 4);
+    pp(&mut r, 0x1c, 31, 16, 0x2);
+    let s = diag::Operation(&r).to_string();
+    assert!(s.starts_with("PDDR operation: phy_mngr_fsm_state 2 (Polling), eth_an_fsm_state 2 (ABILITY_DETECT), neg_mode_active 0 (not negotiated (force mode)), proto_active 0x4"), "{s}");
+    assert!(s.contains("loopback_mode 0 (none)") && s.ends_with("fec_mode_active 0x2"), "{s}");
+}
+
+#[test]
+fn link_down_page() {
+    let mut r = pddr_page();
+    pp(&mut r, 0, 3, 0, 2);
+    pp(&mut r, 0, 7, 4, 2);
+    pp(&mut r, 0x04, 7, 0, 7);
+    assert!(diag::LinkDown(&r)
+        .to_string()
+        .starts_with("PDDR last link down: down_blame 2 (remote phy), down_intent 2 (unintentional), local_reason_opcode 7,"));
+}
+
+#[test]
+fn module_monitors() {
+    let mut r = pddr_page();
+    pp(&mut r, 0x4c, 15, 0, 33012); // 3.3012 V
+    pp(&mut r, 0x4c, 31, 16, 31 * 256 + 128); // 31.5 C
+    pp(&mut r, 0x50, 31, 16, (-3i16) as u16 as u32); // rx lane 0
+    pp(&mut r, 0x50, 15, 0, 5); // rx lane 1
+    pp(&mut r, 0x60, 31, 16, 1);
+    pp(&mut r, 0x70, 31, 16, 3000); // 6000 uA
+    pp(&mut r, 0x9c, 15, 8, 0x1f);
+    let mut u = pddr_page();
+    pp(&mut u, 0x50, 31, 16, 5012);
+    let s = diag::Monitors { dbm: &r, uw: Some(&u), lanes: 1 }.to_string();
+    assert_eq!(
+        s,
+        "PDDR module: 3.3012 V, 31.5 C, monitor_cap_mask 0x1f, rx_power dBm-field [-3], tx_power dBm-field [1], \
+         rx_power uW-field [5012], tx_power uW-field [0], tx_bias uA [6000], module_st 0 (reserved, CMIS only)"
+    );
+    let s = diag::Monitors { dbm: &r, uw: None, lanes: 2 }.to_string();
+    assert!(s.contains("rx_power dBm-field [-3 5]") && !s.contains("uW"), "{s}");
+    pp(&mut r, 0x4c, 31, 16, (-(5 * 256)) as i16 as u16 as u32);
+    assert!(diag::Monitors { dbm: &r, uw: None, lanes: 1 }.to_string().contains(" -5.0 C"));
+}
+
+#[test]
+fn module_flags() {
+    let mut r = pddr_page();
+    pp(&mut r, 0x10, 31, 24, 1);
+    pp(&mut r, 0, 0, 0, 1);
+    pp(&mut r, 0x04, 31, 24, 1);
+    let s = diag::Flags(&r).to_string();
+    assert!(s.starts_with("PDDR module flags (latched, bit per lane): rx_los 0x1 (rx_los_cap 1), tx_fault 0x1, tx_los 0x0"), "{s}");
+}
+
+#[test]
+fn ptys_paos_pplm_pmlp() {
+    let mut r = vec![0u8; 64];
+    put(&mut r, 0x0c, 31, 0, 1 << 29 | 1 << 28 | 1 << 27);
+    put(&mut r, 0x18, 31, 0, 1 << 29);
+    put(&mut r, 0x04, 31, 28, 4);
+    put(&mut r, 0, 29, 29, 1);
+    let s = diag::Ptys(&r).to_string();
+    assert!(s.starts_with(
+        "PTYS: eth_proto_capability 0x38000000 (25GBASE-SR,25GBASE-KR,25GBASE-CR), eth_proto_admin 0x20000000 (25GBASE-SR), \
+         eth_proto_oper 0x00000000 (none), ext cap/admin/oper 0x0/0x0/0x0, an_disable_cap 1, an_disable_admin 0, \
+         an_status 4 (AN not performed, link down)"
+    ), "{s}");
+
+    let mut paos = [0u8; 16];
+    put(&mut paos, 0, 11, 8, 1);
+    put(&mut paos, 0, 3, 0, 2);
+    let mut pl = vec![0u8; pplm::LEN];
+    put(&mut pl, 0x10, 31, 0, 0x7771);
+    put(&mut pl, 0x14, 31, 0, 0x0440);
+    assert_eq!(
+        diag::PaosPplm { paos: Some(&paos), pplm: Some(&pl) }.to_string(),
+        "PAOS: admin_status 1 (up), oper_status 2 (down); PPLM raw: 0Ch 0x00000000 (fec_mode_active), \
+         10h 0x00007771 (caps), 14h 0x00000440 (admins)"
+    );
+    assert_eq!(diag::PaosPplm { paos: None, pplm: None }.to_string(), "PAOS: not answered; PPLM: not answered");
+
+    let mut m = vec![0u8; diag::PMLP_LEN];
+    assert_eq!(diag::Pmlp(&m).to_string(), "PMLP: width 0 (unmapped: the port maps to no lane)");
+    assert_eq!(diag::lanes(Some(&m)), 1);
+    put(&mut m, 0, 7, 0, 1);
+    put(&mut m, 4, 7, 0, 1);
+    put(&mut m, 4, 19, 16, 0);
+    assert_eq!(diag::Pmlp(&m).to_string(), "PMLP: width 1, lane 0: module 1 tx_lane 0 rx_lane 0");
+    put(&mut m, 0, 7, 0, 4);
+    assert_eq!(diag::lanes(Some(&m)), 4);
+    assert_eq!(diag::lanes(None), 1);
+    assert_eq!(diag::PMLP_ID, 0x5002);
+}

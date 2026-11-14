@@ -737,3 +737,446 @@ impl core::fmt::Display for Report<'_> {
         f.write_str(if self.up { "link up" } else { "no link" })
     }
 }
+
+/// The card's own account of a port with no link (#13): PDDR's
+/// troubleshooting, operation, link-down, module and latched-flag pages,
+/// PTYS, PAOS, PPLM and PMLP, decoded for one console line each. Layouts from
+/// mstflint's adb, nodes `pddr_troubleshooting_page_ext`,
+/// `pddr_monitor_opcode_ext`, `pddr_operation_info_page_ext`,
+/// `pddr_link_down_info_page_ext`, `pddr_module_info_ext`,
+/// `module_latched_flag_info_ext`, `ptys_reg_ext`, `paos_reg_ext`,
+/// `pplm_reg_ext`, `pmlp_reg_ext` (docs/spec/linkdiag.md). Each type takes a
+/// whole register read (offsets as in the adb, PDDR pages from 08h).
+pub mod diag {
+    use super::{get, PROTOS};
+    use core::fmt::{self, Display, Formatter};
+
+    pub const PAGE_OPERATION: u32 = 0;
+    pub const PAGE_TROUBLESHOOTING: u32 = 1;
+    pub const PAGE_LINK_DOWN: u32 = 6;
+    pub const PAGE_MODULE_FLAGS: u32 = 9;
+    /// PDDR `module_info_ext` (04h 30:29): the unit of the module page's
+    /// power fields, 0 dBm, 1 uW.
+    pub const MODULE_INFO_EXT: (usize, u32, u32) = (0x04, 30, 29);
+    pub const PMLP_ID: u32 = 0x5002;
+    pub const PMLP_LEN: usize = 0x40;
+    const PAGE: usize = 0x08;
+
+    fn pg(r: &[u8], off: usize, hi: u32, lo: u32) -> u32 {
+        get(r, PAGE + off, hi, lo)
+    }
+
+    /// A read too short for its layout says so (a Display never fails).
+    fn short(f: &mut Formatter<'_>, what: &str, r: &[u8], need: usize) -> Result<bool, fmt::Error> {
+        if r.len() < need {
+            write!(f, "{what}: short read ({} bytes)", r.len())?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// What the adb's `pddr_monitor_opcode_ext` says a status opcode means.
+    pub fn monitor_opcode(v: u32) -> &'static str {
+        match v {
+            0 => "no issue observed",
+            1 => "port closed by command (PAOS)",
+            60 => "no partner detected for a long time",
+            2..=4 | 38 | 39 | 69 => "auto-negotiation failure",
+            5..=8 | 62..=66 => "link training failure",
+            9..=13 => "logical mismatch between link partners",
+            14 => "remote fault received",
+            15 | 17 | 42 | 48 | 49 | 52 => "bad signal integrity",
+            16 | 24..=32 => "cable compliance code mismatch (protocol mismatch between cable and port)",
+            18 | 19 | 22 | 23 | 50 | 55 => "internal error",
+            34 | 35 => "speed degradation",
+            56 => "module lanes frequency not synced",
+            57 => "signal not detected",
+            70 => "link not healthy, BER does not meet criteria",
+            71 => "serdes uphy fatal indication / invalid port speed configuration",
+            72 => "serdes ophy fatal indication",
+            91 => "link-up failed, local device BER passes criteria",
+            128 => "troubleshooting in process",
+            1023 => "info not available",
+            1024 => "cable is unplugged",
+            1025 => "long range for non-Mellanox cable/module",
+            1026 => "bus stuck (I2C data or clock shorted)",
+            1027 => "bad/unsupported EEPROM",
+            1028 => "part number list",
+            1029 => "unsupported cable",
+            1030 => "module temperature shutdown",
+            1031 => "shorted cable",
+            1032 => "power budget exceeded",
+            1033 => "management forced down the port",
+            1034 => "module is disabled by command",
+            1035 => "system power exceeded, module powered off",
+            1036 => "module's PMD type is not enabled (PMTPS)",
+            1040 => "PCIe slot power exceeded",
+            1042 => "module state machine fault",
+            1043..=1046 => "module's stamping speed degeneration",
+            1047 | 1048 => "module DataPath FSM fault",
+            1050..=1053 => "module boot error",
+            1054 => "module forced to low power by command",
+            _ => "opcode not in the adb",
+        }
+    }
+
+    fn ascii(b: &[u8]) -> &str {
+        let n = b.iter().position(|&c| !(0x20..0x7f).contains(&c)).unwrap_or(b.len());
+        core::str::from_utf8(&b[..n]).unwrap_or("").trim_end()
+    }
+
+    /// PDDR page 1: `monitor_opcode` (page 04h 15:0) and the firmware's own
+    /// `status_message` (page 0Ch, NUL-terminated ASCII).
+    pub struct Troubleshooting<'a>(pub &'a [u8]);
+
+    impl Troubleshooting<'_> {
+        pub fn opcode(&self) -> Option<u32> {
+            (self.0.len() >= PAGE + 0x08).then(|| pg(self.0, 0x04, 15, 0))
+        }
+    }
+
+    impl Display for Troubleshooting<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            if short(f, "PDDR troubleshooting", self.0, PAGE + 0x0c)? {
+                return Ok(());
+            }
+            let op = self.opcode().unwrap_or(0);
+            write!(f, "PDDR troubleshooting: monitor_opcode {op} ({})", monitor_opcode(op))?;
+            let msg = ascii(&self.0[PAGE + 0x0c..]);
+            if !msg.is_empty() {
+                write!(f, ", firmware says \"{msg}\"")?;
+            }
+            Ok(())
+        }
+    }
+
+    fn phy_mngr(v: u32) -> &'static str {
+        const N: [&str; 18] = [
+            "Disabled", "Open_port", "Polling", "Active", "Close_port", "Phy_up", "Sleep", "Rx_disable",
+            "Signal_detect", "Receiver_detect", "Sync_peer", "Negotiation", "Training", "SubFSM_active",
+            "Protocol_Detect", "Unknown", "Reserved", "Waiting_state",
+        ];
+        N.get(v as usize).copied().unwrap_or("?")
+    }
+
+    fn eth_an(v: u32) -> &'static str {
+        const N: [&str; 8] =
+            ["ENABLE", "XMIT_DISABLE", "ABILITY_DETECT", "ACK_DETECT", "COMPLETE_ACK", "AN_GOOD_CHECK", "AN_GOOD", "NEXT_PAGE_WAIT"];
+        N.get(v as usize).copied().unwrap_or("?")
+    }
+
+    fn neg_mode(v: u32) -> &'static str {
+        match v {
+            0 => "not negotiated (force mode)",
+            1 => "MLPN rev0",
+            2 => "CL73",
+            3 => "parallel detect (partner in force mode)",
+            4 => "IB",
+            _ => "?",
+        }
+    }
+
+    fn loopback(v: u32) -> &'static str {
+        match v {
+            0 => "none",
+            1 => "phy remote",
+            2 => "phy local",
+            4 => "external local",
+            _ => "?",
+        }
+    }
+
+    /// PDDR page 0, `pddr_operation_info_page_ext`.
+    pub struct Operation<'a>(pub &'a [u8]);
+
+    impl Display for Operation<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let r = self.0;
+            if short(f, "PDDR operation", r, PAGE + 0x20)? {
+                return Ok(());
+            }
+            let (pm, an, nm, lb) = (pg(r, 4, 31, 24), pg(r, 4, 23, 16), pg(r, 0, 19, 16), pg(r, 0x18, 11, 0));
+            write!(
+                f,
+                "PDDR operation: phy_mngr_fsm_state {pm} ({}), eth_an_fsm_state {an} ({}), neg_mode_active {nm} ({}), \
+                 proto_active {:#x}, phy_manager_link_enabled {:#x}, core_to_phy_link_enabled {:#x}, \
+                 cable_proto_cap {:#x}, link_active {:#x}, loopback_mode {lb} ({}), fec_mode_request {:#x}, \
+                 fec_mode_active {:#x}",
+                phy_mngr(pm),
+                eth_an(an),
+                neg_mode(nm),
+                pg(r, 0, 23, 20),
+                pg(r, 0x08, 31, 0),
+                pg(r, 0x0c, 31, 0),
+                pg(r, 0x10, 31, 0),
+                pg(r, 0x14, 31, 0),
+                loopback(lb),
+                pg(r, 0x1c, 15, 0),
+                pg(r, 0x1c, 31, 16),
+            )
+        }
+    }
+
+    /// PDDR page 6, `pddr_link_down_info_page_ext`: the last link drop.
+    pub struct LinkDown<'a>(pub &'a [u8]);
+
+    impl Display for LinkDown<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let r = self.0;
+            if short(f, "PDDR last link down", r, PAGE + 0x38)? {
+                return Ok(());
+            }
+            let blame = ["unknown", "local phy", "remote phy"];
+            let intent = ["unknown", "intentional", "unintentional"];
+            let (b, i) = (pg(r, 0, 3, 0), pg(r, 0, 7, 4));
+            write!(
+                f,
+                "PDDR last link down: down_blame {b} ({}), down_intent {i} ({}), local_reason_opcode {}, \
+                 remote_reason_opcode {}, e2e_reason_opcode {}, recovery_entry_reason {}, pcs_phy_state_latched {:#x}",
+                blame.get(b as usize).copied().unwrap_or("?"),
+                intent.get(i as usize).copied().unwrap_or("?"),
+                pg(r, 0x04, 7, 0),
+                pg(r, 0x08, 7, 0),
+                pg(r, 0x0c, 7, 0),
+                pg(r, 0x04, 23, 16),
+                pg(r, 0x34, 31, 0),
+            )
+        }
+    }
+
+    /// The lanes a port uses: PMLP `width`, at least 1, at most 8.
+    pub fn lanes(pmlp: Option<&[u8]>) -> usize {
+        pmlp.filter(|r| r.len() >= 4).map_or(1, |r| (get(r, 0, 7, 0) as usize).clamp(1, 8))
+    }
+
+    /// One lane's 16-bit field of the module page: lane 2k at 31:16 and
+    /// lane 2k+1 at 15:0 of dword `base + 4k`.
+    fn lane16(r: &[u8], base: usize, lane: usize) -> u32 {
+        let off = base + 4 * (lane / 2);
+        if lane % 2 == 0 {
+            pg(r, off, 31, 16)
+        } else {
+            pg(r, off, 15, 0)
+        }
+    }
+
+    fn list(f: &mut Formatter<'_>, name: &str, n: usize, v: impl Fn(usize) -> i64) -> fmt::Result {
+        write!(f, ", {name} [")?;
+        for l in 0..n {
+            write!(f, "{}{}", if l == 0 { "" } else { " " }, v(l))?;
+        }
+        f.write_str("]")
+    }
+
+    /// PDDR page 3 monitors, `pddr_module_info_ext`: the module page read
+    /// in dBm (`dbm`) and, if it answered, again in uW (`uw`), so the power
+    /// fields' resolution can be told from the pair (HW-CHECK 1, linkdiag.md).
+    pub struct Monitors<'a> {
+        pub dbm: &'a [u8],
+        pub uw: Option<&'a [u8]>,
+        pub lanes: usize,
+    }
+
+    fn module_st(v: u32) -> &'static str {
+        ["reserved", "LowPwr", "PwrUp", "Ready", "PwrDn", "Fault"].get(v as usize).copied().unwrap_or("?")
+    }
+
+    impl Display for Monitors<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let r = self.dbm;
+            if short(f, "PDDR module", r, PAGE + 0x9c)? {
+                return Ok(());
+            }
+            let v = pg(r, 0x4c, 15, 0);
+            let t = pg(r, 0x4c, 31, 16) as u16 as i16 as i32;
+            let tenths = t * 10 / 256;
+            write!(
+                f,
+                "PDDR module: {}.{:04} V, {}{}.{} C, monitor_cap_mask {:#x}",
+                v / 10000,
+                v % 10000,
+                if tenths < 0 { "-" } else { "" },
+                tenths.abs() / 10,
+                tenths.abs() % 10,
+                pg(r, 0x9c, 15, 8)
+            )?;
+            let n = self.lanes;
+            let signed = |r: &[u8], base: usize, l: usize| i64::from(lane16(r, base, l) as u16 as i16);
+            list(f, "rx_power dBm-field", n, |l| signed(r, 0x50, l))?;
+            list(f, "tx_power dBm-field", n, |l| signed(r, 0x60, l))?;
+            if let Some(u) = self.uw.filter(|u| u.len() >= PAGE + 0x70) {
+                list(f, "rx_power uW-field", n, |l| i64::from(lane16(u, 0x50, l)))?;
+                list(f, "tx_power uW-field", n, |l| i64::from(lane16(u, 0x60, l)))?;
+            }
+            list(f, "tx_bias uA", n, |l| i64::from(lane16(r, 0x70, l)) * 2)?;
+            let st = pg(r, 0x94, 31, 29);
+            write!(f, ", module_st {st} ({}, CMIS only)", module_st(st))
+        }
+    }
+
+    /// PDDR page 9, `module_latched_flag_info_ext`: per-lane bitmasks.
+    pub struct Flags<'a>(pub &'a [u8]);
+
+    impl Display for Flags<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let r = self.0;
+            if short(f, "PDDR module flags", r, PAGE + 0x18)? {
+                return Ok(());
+            }
+            write!(
+                f,
+                "PDDR module flags (latched, bit per lane): rx_los {:#x} (rx_los_cap {}), tx_fault {:#x}, tx_los {:#x}, \
+                 rx_cdr_lol {:#x}, tx_cdr_lol {:#x}, rx_power_lo_al {:#x}, rx_power_hi_al {:#x}, tx_power_lo_al {:#x}, \
+                 tx_bias_lo_al {:#x}, temp_flags {:#x}, vcc_flags {:#x}",
+                pg(r, 0x10, 31, 24),
+                pg(r, 0, 0, 0),
+                pg(r, 0x04, 31, 24),
+                pg(r, 0x04, 23, 16),
+                pg(r, 0x10, 23, 16),
+                pg(r, 0x04, 15, 8),
+                pg(r, 0x14, 23, 16),
+                pg(r, 0x14, 31, 24),
+                pg(r, 0x08, 23, 16),
+                pg(r, 0x0c, 23, 16),
+                pg(r, 0, 31, 28),
+                pg(r, 0, 27, 24),
+            )
+        }
+    }
+
+    /// The PRM Table 108 names of a PTYS mask, e.g. `25GBASE-SR,25GBASE-KR`.
+    pub struct Protos(pub u32);
+
+    impl Display for Protos {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let mut first = true;
+            for p in PROTOS.iter().filter(|p| self.0 & (1 << p.bit) != 0) {
+                write!(f, "{}{}", if first { "" } else { "," }, p.media)?;
+                first = false;
+            }
+            if first {
+                f.write_str("none")?;
+            }
+            Ok(())
+        }
+    }
+
+    fn an_status(v: u32) -> &'static str {
+        match v {
+            0 => "unavailable",
+            1 => "AN completed",
+            2 => "AN performed but failed",
+            3 => "AN not performed, link up",
+            4 => "AN not performed, link down",
+            _ => "?",
+        }
+    }
+
+    /// PTYS, `ptys_reg_ext`: what the port may and does run, and its AN.
+    pub struct Ptys<'a>(pub &'a [u8]);
+
+    impl Display for Ptys<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let r = self.0;
+            if short(f, "PTYS", r, 0x30)? {
+                return Ok(());
+            }
+            let (cap, admin, oper) = (get(r, 0x0c, 31, 0), get(r, 0x18, 31, 0), get(r, 0x24, 31, 0));
+            let an = get(r, 0x04, 31, 28);
+            write!(
+                f,
+                "PTYS: eth_proto_capability {cap:#010x} ({}), eth_proto_admin {admin:#010x} ({}), \
+                 eth_proto_oper {oper:#010x} ({}), ext cap/admin/oper {:#x}/{:#x}/{:#x}, an_disable_cap {}, \
+                 an_disable_admin {}, an_status {an} ({}), connector_type {}",
+                Protos(cap),
+                Protos(admin),
+                Protos(oper),
+                get(r, 0x08, 31, 0),
+                get(r, 0x14, 31, 0),
+                get(r, 0x20, 31, 0),
+                get(r, 0, 29, 29),
+                get(r, 0, 30, 30),
+                an_status(an),
+                get(r, 0x2c, 3, 0),
+            )
+        }
+    }
+
+    fn paos_admin(v: u32) -> &'static str {
+        match v {
+            1 => "up",
+            2 => "down by configuration",
+            3 => "up once",
+            4 => "disabled by system",
+            6 => "sleep",
+            _ => "?",
+        }
+    }
+
+    fn paos_oper(v: u32) -> &'static str {
+        match v {
+            1 => "up",
+            2 => "down",
+            4 => "down by port failure",
+            _ => "?",
+        }
+    }
+
+    /// PAOS admin/oper and PPLM's FEC dwords raw (0Ch active, 10h caps,
+    /// 14h admins), on one line; either may be missing.
+    pub struct PaosPplm<'a> {
+        pub paos: Option<&'a [u8]>,
+        pub pplm: Option<&'a [u8]>,
+    }
+
+    impl Display for PaosPplm<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            match self.paos.filter(|r| r.len() >= 4) {
+                Some(r) => {
+                    let (a, o) = (get(r, 0, 11, 8), get(r, 0, 3, 0));
+                    write!(f, "PAOS: admin_status {a} ({}), oper_status {o} ({})", paos_admin(a), paos_oper(o))?
+                }
+                None => f.write_str("PAOS: not answered")?,
+            }
+            match self.pplm.filter(|r| r.len() >= 0x18) {
+                Some(r) => write!(
+                    f,
+                    "; PPLM raw: 0Ch {:#010x} (fec_mode_active), 10h {:#010x} (caps), 14h {:#010x} (admins)",
+                    get(r, 0x0c, 31, 0),
+                    get(r, 0x10, 31, 0),
+                    get(r, 0x14, 31, 0)
+                ),
+                None => f.write_str("; PPLM: not answered"),
+            }
+        }
+    }
+
+    /// PMLP, `pmlp_reg_ext`: the port's width and each lane's module and
+    /// module lanes. Width 0 is an unmapped port, which never links.
+    pub struct Pmlp<'a>(pub &'a [u8]);
+
+    impl Display for Pmlp<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let r = self.0;
+            if short(f, "PMLP", r, 0x24)? {
+                return Ok(());
+            }
+            let w = get(r, 0, 7, 0);
+            write!(f, "PMLP: width {w}")?;
+            if w == 0 {
+                return f.write_str(" (unmapped: the port maps to no lane)");
+            }
+            for l in 0..(w as usize).min(8) {
+                let off = 4 + 4 * l;
+                write!(
+                    f,
+                    ", lane {l}: module {} tx_lane {} rx_lane {}",
+                    get(r, off, 7, 0),
+                    get(r, off, 19, 16),
+                    get(r, off, 27, 24)
+                )?;
+            }
+            Ok(())
+        }
+    }
+}

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### 2026-11-14 (#13)
+- **feat:** Under a port with no link after bring-up, the card's own account of why, one line per register group:
+  PDDR troubleshooting (`monitor_opcode` named per the adb, and the firmware's status message), operation info
+  (`phy_mngr_fsm_state`, `eth_an_fsm_state`, `neg_mode_active`, link-enabled masks, `loopback_mode`, FEC
+  request/active), last link-down info (blame, intent, reason opcodes), module monitors (V, C, rx/tx power per lane
+  in both of the page's units, bias), latched module flags (rx_los, tx_fault, CDR LOL, power alarms), PTYS
+  cap/admin/oper with `an_status`/`an_disable_*`, PAOS, PPLM raw and PMLP's lane map. A linked port's line stays
+  one line; its diagnosis goes to the trace. Layouts from mstflint's adb (docs/spec/linkdiag.md). For forge1 84:00.0.
+
 ### 2026-11-14 (#12)
 - **fix:** `SNP.Receive` and `WaitForPacket`'s notify drain the EQ and CQs themselves; `Initialize`'s stale-frame
   drop covers the CQ too. Before, only `GetStatus` moved completions into the receive queue, and stormbootx calls it

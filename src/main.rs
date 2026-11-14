@@ -319,6 +319,13 @@ unsafe extern "efiapi" fn start(
         fec: n.eth.fec(&mut n.hca, pci),
     };
     say!("{line}, SNP installed");
+    // Under a port with no link, the card's own account of why (#13,
+    // docs/spec/linkdiag.md); a linked port stays one line (the same lines
+    // go to the trace, to compare with a port that is down).
+    let up = n.eth.link_up();
+    for l in n.eth.diagnosis(&mut n.hca, pci) {
+        note!(!up, "    port {}: {l}", n.eth.num());
+    }
     Status::SUCCESS
 }
 

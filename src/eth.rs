@@ -257,6 +257,40 @@ impl Eth {
             Fec::Failed(why) => layout::FecResult::Failed(why),
         }
     }
+    /// The card's own account of the port's link (#13, docs/spec/linkdiag.md):
+    /// one line per register group, read now. A register that does not
+    /// answer says so on its line.
+    pub fn diagnosis(&self, h: &mut Hca, pci: &mut PciIo) -> Vec<String> {
+        use alloc::format;
+        use layout::diag;
+        let (o, hi, lo) = pddr::PAGE_SELECT;
+        let page = |h: &mut Hca, pci: &mut PciIo, n: u32, ext: u32| {
+            let (eo, ehi, elo) = diag::MODULE_INFO_EXT;
+            read_reg_at(h, pci, pddr::ID, pddr::LEN, &[(o, hi, lo, n), (eo, ehi, elo, ext)]).ok()
+        };
+        let trouble = page(h, pci, diag::PAGE_TROUBLESHOOTING, 0);
+        let oper = page(h, pci, diag::PAGE_OPERATION, 0);
+        let down = page(h, pci, diag::PAGE_LINK_DOWN, 0);
+        let dbm = page(h, pci, pddr::MODULE_INFO_PAGE, 0);
+        let uw = page(h, pci, pddr::MODULE_INFO_PAGE, 1);
+        let flags = page(h, pci, diag::PAGE_MODULE_FLAGS, 0);
+        let ptys = read_reg(h, pci, REG_PTYS, 64).ok();
+        let paos = read_reg(h, pci, REG_PAOS, 16).ok();
+        let pplm = read_reg(h, pci, pplm::ID, pplm::LEN).ok();
+        let pmlp = read_reg(h, pci, diag::PMLP_ID, diag::PMLP_LEN).ok();
+        let lanes = diag::lanes(pmlp.as_deref());
+        let or = |r: Option<String>, what: &str| r.unwrap_or_else(|| format!("{what}: not answered"));
+        alloc::vec![
+            or(trouble.as_deref().map(|r| format!("{}", diag::Troubleshooting(r))), "PDDR troubleshooting"),
+            or(oper.as_deref().map(|r| format!("{}", diag::Operation(r))), "PDDR operation"),
+            or(down.as_deref().map(|r| format!("{}", diag::LinkDown(r))), "PDDR last link down"),
+            or(dbm.as_deref().map(|r| format!("{}", diag::Monitors { dbm: r, uw: uw.as_deref(), lanes })), "PDDR module"),
+            or(flags.as_deref().map(|r| format!("{}", diag::Flags(r))), "PDDR module flags"),
+            or(ptys.as_deref().map(|r| format!("{}", diag::Ptys(r))), "PTYS"),
+            format!("{}", diag::PaosPplm { paos: paos.as_deref(), pplm: pplm.as_deref() }),
+            or(pmlp.as_deref().map(|r| format!("{}", diag::Pmlp(r))), "PMLP"),
+        ]
+    }
     pub fn module(&self) -> Option<&layout::pddr::Module> {
         self.module.as_ref()
     }
