@@ -108,6 +108,13 @@ stormbootx boot test does not touch the shelf).
     before a transmit. So OFFER n reaches smoltcp after DISCOVER n+1 has changed the xid, and is dropped. Fix:
     Receive and WaitForPacket poll the CQ themselves. Done in 9d86045 (sc-build passed); pin asked on stormbootx#216;
     waits on that pin and the master's canary boot for `leased` on an mlx5 port.
+- [ ] **#13 (P0, owner 2026-11-14: "get the driver to tell us why :80 is down"):** forge1 84:00.0 has no link
+      (RS set, QSFPTEK optic read; down under FlexBoot too), :81 is up. Under a port with no link, print the card's
+      own account, one line per register group: PDDR troubleshooting (monitor_opcode + firmware message), operation
+      info (phy_mngr/eth_an FSMs, neg mode, loopback), link-down info, module monitors (V, C, rx/tx power, bias) and
+      latched flags (rx_los, tx_fault, …), PTYS cap/admin/oper + an_status/an_disable, PAOS, PPLM raw, PMLP lanes.
+      Layouts from mstflint's adb (docs/spec/linkdiag.md). A linked port: the same lines in the trace only.
+      Then: sc-build, pin on stormbootx, the master's forge1 boot, the diagnosis on #13.
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 
