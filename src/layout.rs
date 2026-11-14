@@ -544,15 +544,26 @@ pub mod pplm {
         changed
     }
 
-    /// `fec_mode_active` (adb enum), as the report names it.
+    /// `fec_mode_active` as the report names it. The adb's `pplm_reg_ext`
+    /// says "Active FEC (bitmask)": bit n is its enum's mode n, the same bits
+    /// as the cap/admin fields (bit 0 no FEC, bit 1 Firecode, bit 2 RS(528)).
+    /// The first metal run (C2NR0Q2, ConnectX-4 Lx at 25G, #8) read a value
+    /// the sequential enum has no 25G mode for, which only the bitmask
+    /// explains (bit 2, RS). 0 (no bit) is taken as no FEC.
     pub fn active_name(v: u32) -> &'static str {
-        match v {
-            0x0 => "none",
-            0x1 => "fc",
-            0x2 => "rs",
-            0x3 => "rs-ll",
-            0x7 => "rs-544",
-            0x9 => "rs-ll-50g",
+        if v == 0 {
+            return "none";
+        }
+        if v.count_ones() != 1 {
+            return "several";
+        }
+        match v.trailing_zeros() {
+            0 => "none",
+            1 => "fc",
+            2 => "rs",
+            3 => "rs-ll",
+            7 => "rs-544",
+            9 => "rs-ll-50g",
             _ => "other",
         }
     }
@@ -663,9 +674,10 @@ pub mod pddr {
 
 /// How setting the standard FEC went (#8), for the report line.
 pub enum FecResult<'a> {
-    /// The standard is the port's admin (set now or already); with the
+    /// The standard is the port's admin (set now or already): the speed's
+    /// `fec_override_cap` and `fec_override_admin` as read back, and the
     /// `fec_mode_active` read when the link is up.
-    Standard { active: Option<u32> },
+    Standard { cap: u32, admin: u32, active: Option<u32> },
     /// No FEC field for the speed (1G): nothing to set, the standard is none.
     NoField,
     Failed(&'a str),
@@ -702,12 +714,14 @@ impl core::fmt::Display for Report<'_> {
                 }
                 let std = md.fec.name();
                 match self.fec {
-                    FecResult::Standard { active: Some(a) } if !pplm::active_is(a, std) => write!(
+                    FecResult::Standard { cap, admin, active: Some(a) } if !pplm::active_is(a, std) => write!(
                         f,
-                        "FEC FAILED: standard {std} for {md} set, but the link runs {}, ",
+                        "FEC FAILED: standard {std} for {md} set (PPLM {} cap {cap:#x} admin {admin:#x}), \
+                         but the link runs {} (fec_mode_active {a:#x}), ",
+                        md.speed,
                         pplm::active_name(a)
                     )?,
-                    FecResult::Standard { active } => {
+                    FecResult::Standard { active, .. } => {
                         write!(f, "fec {std} (standard for {md}")?;
                         if active.is_some() {
                             write!(f, ", running {std}")?;

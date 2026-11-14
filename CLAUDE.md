@@ -99,6 +99,10 @@ stormbootx boot test does not touch the shelf).
       (owner: Mellanox docs), docs/spec/fec.md. Its HW-CHECKs come with the first metal run.
   - [x] Pin the commit in stormbootx (`STORMNIC_MLX5_REF`): 09b0615 asked for on stormbootx#202 (2026-11-14; sc-build passed).
         stormbootx still pins 66de545; #1 waits on stormbootx#202 (pin + rustnic medium), then the master's canary boot.
+  - [x] First metal run (09b0615, C2NR0Q2): binds, PPLM written, PDDR module read, links up; the line said
+        `FEC FAILED … runs other`: `fec_mode_active` is a bitmask (adb), read as an index. Fixed (#8): bitmask
+        decode, raw PPLM/fec_mode_active values on the line. Re-pin in stormbootx after sc-build.
+  - [ ] No DHCP lease over this driver's SNP on C2NR0Q2 (frames come in, none accepted): #1's P0, the receive path.
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 

@@ -228,7 +228,8 @@ fn write_reg(h: &mut Hca, pci: &mut PciIo, id: u32, data: &[u8]) -> Result<(), F
 
 /// How the standard FEC went at bind (#8).
 enum Fec {
-    Standard,
+    /// The port's own speed field in PPLM holds its standard.
+    Standard(&'static pplm::Speed),
     NoField,
     Failed(String),
 }
@@ -237,16 +238,21 @@ impl Eth {
     /// The report's FEC part, with `fec_mode_active` read now if the link is up.
     pub fn fec(&self, h: &mut Hca, pci: &mut PciIo) -> layout::FecResult<'_> {
         match &self.fec {
-            Fec::Standard => layout::FecResult::Standard {
-                active: if self.link {
-                    read_reg(h, pci, pplm::ID, pplm::LEN).ok().map(|r| {
-                        let (o, hi, lo) = pplm::ACTIVE;
-                        get(&r, o, hi, lo)
-                    })
-                } else {
-                    None
-                },
-            },
+            Fec::Standard(s) => {
+                // Read now, after the link wait: the speed's cap and admin
+                // as the firmware holds them, and what the link runs.
+                let r = read_reg(h, pci, pplm::ID, pplm::LEN).ok();
+                let (cap, admin) = r.as_deref().map_or((0, 0), |r| {
+                    let (o, hi, lo) = s.cap;
+                    (get(r, o, hi, lo), pplm::admin(r, s))
+                });
+                let active = r.as_deref().filter(|_| self.link).map(|r| {
+                    let (o, hi, lo) = pplm::ACTIVE;
+                    get(r, o, hi, lo)
+                });
+                trace!("  PPLM {} now: cap {cap:#x}, admin {admin:#x}, fec_mode_active {active:#x?}", s.name);
+                layout::FecResult::Standard { cap, admin, active }
+            }
             Fec::NoField => layout::FecResult::NoField,
             Fec::Failed(why) => layout::FecResult::Failed(why),
         }
@@ -794,6 +800,9 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
         }
         if !up || changed {
             let _ = write_reg(h, pci, REG_PAOS, &paos_admin(1));
+            if let Ok(p) = read_reg(h, pci, REG_PAOS, 16) {
+                trace!("  PAOS after: admin {}, oper {}", get(&p, 0, 11, 8), get(&p, 0, 3, 0));
+            }
         }
     }
     Ok(())
@@ -855,7 +864,7 @@ fn set_fec(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> bool {
     }
     if pplm::admin(&reg, want) == want.want {
         trace!("  FEC: {} {} ({})", want.name, want.fec, if changed { "set" } else { "already" });
-        e.fec = Fec::Standard;
+        e.fec = Fec::Standard(want);
     } else if !pplm::offered(&reg, want) {
         let (o, hi, lo) = want.cap;
         fail(e, alloc::format!("the firmware offers no {} override for {} (cap {:#x})", want.fec, want.name, get(&reg, o, hi, lo)));

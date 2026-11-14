@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### 2026-11-14 (#8, metal)
+- **fix:** `fec_mode_active` is decoded as the bitmask the adb says it is (bit n = mode n, bit 2 RS), not as the
+  enum's index. 09b0615 on C2NR0Q2's 25G ConnectX-4 Lx ports printed `FEC FAILED: … but the link runs other`:
+  a value no 25G index explains, and bit 2 is RS.
+- **feat:** The port line's FEC FAILED for a running mode carries the raw PPLM values (`PPLM 25g cap … admin …`,
+  `fec_mode_active …`), read after the link wait; PAOS admin/oper is traced after the down/up.
+
 ### 2026-11-14 (#1)
 - **docs:** Work plan: stormnic-mlx5 09b0615 asked for as the stormbootx pin (stormbootx#202); #1 waits on that pin and the canary boot.
 

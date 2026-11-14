@@ -35,7 +35,7 @@ b+n-1..b counted from the dword's LSB, the PRM's own numbering: adb PAOS
 | Offset | Bits | Field | Values |
 |---|---|---|---|
 | 00h | 23:16 | local_port | index |
-| 0Ch | 23:0 | fec_mode_active (RO) | 0 none, 1 Firecode, 2 RS(528), 3 LL RS, 7 RS(544) KP4, 9 consortium LL 50G RS, … |
+| 0Ch | 23:0 | fec_mode_active (RO) | **bitmask** (adb: "Active FEC (bitmask)"): bit n = enum mode n — bit 0 none, 1 Firecode, 2 RS(528), 3 LL RS, 7 RS(544) KP4, 9 consortium LL 50G RS, … (the same bits as cap/admin) |
 | 10h | 3:0 / 7:4 / 11:8 / 15:12 | fec_override_cap_10g_40g / _25g / _50g / _100g (RO) | bit0 no FEC, bit1 Firecode, bit2 RS (100G: bit1 reserved) |
 | 14h | 3:0 / 7:4 / 11:8 / 15:12 | fec_override_admin_… (RW) | one-hot as the cap; 0 = auto (firmware's choice) |
 | 14h | 19:16 | fec_override_admin_56g | left as read |
@@ -57,8 +57,19 @@ trace). A speed whose cap does not offer its standard is left as it is
 (auto). PPLM, like PTYS's admin fields (PRM 11.1.2 note), takes effect at
 link training: if PAOS says the port was already administratively up and PPLM
 changed, the driver writes PAOS admin down (2) and up (1), each with `ase`.
-After the link wait, `fec_mode_active` is read when the link is up and a value
-other than the standard is `FEC FAILED: … but the link runs …`.
+After the link wait, PPLM is read again for the line: the speed's cap and
+admin, and `fec_mode_active` when the link is up. A mode other than the
+standard is `FEC FAILED: standard rs for … set (PPLM 25g cap 0x7 admin 0x4),
+but the link runs fc (fec_mode_active 0x2)`, raw values on the line so the
+console alone says what the registers held.
+
+**`fec_mode_active` is a bitmask, not the enum's index.** 09b0615 read it as
+the index (2 = RS) and printed `FEC FAILED: … but the link runs other` on both
+C2NR0Q2 ports (ConnectX-4 Lx, 25GBASE-SR, link up; install C2NR0Q2-1794677894).
+"other" meant a value outside 0/1/2/3/7/9, and no other index is a 25G mode
+(4–6, 8, 10+ are 544/272 PAM4 modes); bit 2 (0x4) is RS. So the decode
+follows the adb's "(bitmask)", and the line now carries the raw value to
+confirm it on the next run (HW-CHECK 5).
 
 ## 3. PDDR — Port Diagnostics Database, 0x5031, 0x100 bytes
 
@@ -89,3 +100,10 @@ stormnic-mlx5 0.1.0: 0000:84:00.0 15b3:1015 ConnectX-4 Lx port 1: MAC …, 25GBA
 3. Does PDDR's module page answer on this firmware (`PCAM` bit 43
    `PDDR_register_is_supported`)? Otherwise the line has no module part.
 4. After the PAOS down/up, does the link come back within the link wait?
+
+First run (09b0615, C2NR0Q2, 2026-11-14): 1 yes (PPLM read, written and read
+back with the 25G admin RS); 3 yes (`SFP28/SFP+ optical QSFPTEK QT-SFP28-SR`);
+4 yes (link up on both ports). 2 is only in the trace, not captured.
+
+5. `fec_mode_active` on a 25G RS link reads 0x4 (bitmask)? The line shows
+   `running rs` if so; a `FEC FAILED … (fec_mode_active 0x…)` says otherwise.

@@ -272,10 +272,18 @@ fn pplm_speed_fields() {
         }
         assert_eq!(s.want.count_ones(), 1, "{} is one-hot", s.name);
     }
+    // fec_mode_active is a bitmask (adb), bit n = mode n.
     assert_eq!(pplm::active_name(0), "none");
-    assert_eq!(pplm::active_name(2), "rs");
-    assert_eq!(pplm::active_name(1), "fc");
-    assert_eq!(pplm::active_name(7), "rs-544");
+    assert_eq!(pplm::active_name(0x1), "none");
+    assert_eq!(pplm::active_name(0x2), "fc");
+    assert_eq!(pplm::active_name(0x4), "rs");
+    assert_eq!(pplm::active_name(0x80), "rs-544");
+    assert_eq!(pplm::active_name(0x6), "several");
+    assert_eq!(pplm::active_name(0x10), "other");
+    // The admin values the driver writes name the same mode when active.
+    for s in pplm::SPEEDS {
+        assert!(pplm::active_is(s.want, s.fec), "{}", s.name);
+    }
 }
 
 #[test]
@@ -291,7 +299,8 @@ fn report_line() {
         oper: 1 << 29,
         up: true,
         module: Some(&m),
-        fec: FecResult::Standard { active: Some(2) },
+        // C2NR0Q2's 25G port after the write: running RS reads 0x4 (#8).
+        fec: FecResult::Standard { cap: 0x7, admin: 0x4, active: Some(0x4) },
     };
     assert_eq!(
         r.to_string(),
@@ -299,8 +308,11 @@ fn report_line() {
          25GBASE-SR 25g, SFP28/SFP+ optical FS SFP-25GSR-85, fec rs (standard for 25GBASE-SR, running rs), link up"
     );
     // The link came up with another FEC than the one set: loud.
-    r.fec = FecResult::Standard { active: Some(1) };
-    assert!(r.to_string().contains("FEC FAILED: standard rs for 25GBASE-SR set, but the link runs fc, link up"));
+    r.fec = FecResult::Standard { cap: 0x7, admin: 0x4, active: Some(0x2) };
+    assert!(r.to_string().contains(
+        "FEC FAILED: standard rs for 25GBASE-SR set (PPLM 25g cap 0x7 admin 0x4), \
+         but the link runs fc (fec_mode_active 0x2), link up"
+    ));
     r.fec = FecResult::Failed("PPLM write refused");
     r.up = false;
     r.oper = 0;
@@ -311,7 +323,7 @@ fn report_line() {
          25GBASE-SR/KR/CR 25g capable, FEC FAILED: standard rs for 25GBASE-SR/KR/CR not set: \
          PPLM write refused, no link"
     );
-    r.fec = FecResult::Standard { active: None };
+    r.fec = FecResult::Standard { cap: 0x7, admin: 0x4, active: None };
     assert!(r.to_string().ends_with("25g capable, fec rs (standard for 25GBASE-SR/KR/CR), no link"));
     r.cap = 1 << 1;
     r.fec = FecResult::NoField;
