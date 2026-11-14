@@ -430,7 +430,7 @@ pub struct Media {
 }
 
 pub fn media(cap: u32, oper: u32, up: bool) -> Option<Media> {
-    let (mask, running) = if up && speed_name(oper) != "" { (oper, true) } else { (cap, false) };
+    let (mask, running) = if up && !speed_name(oper).is_empty() { (oper, true) } else { (cap, false) };
     let mut m = Media { media: [""; 6], count: 0, speed: "", fec: Fec::None, running };
     for p in fastest(mask) {
         if m.count == 0 {
