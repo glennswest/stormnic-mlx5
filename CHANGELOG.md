@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### 2026-11-13
+- **docs:** Work plan: #1 is P0 (owner, 2026-11-14). The driver must set the standard FEC per media/speed at bind and
+  report driver, speed, FEC and link per port, with no FEC config from stormbootx (replaces #8's `StormnicFec`). The
+  public PRM Rev 0.40 has no PPLM (FEC) register, so that waits on an owner decision about the layout's source (#1, #8).
+  The first metal run comes by canary promotion of the rustnic medium to C2NR0Q2, then forge1.
+
 ### 2026-11-11
 - **docs:** Refreshed from the code since 2026-11-04: no source change since 66de545, so README, `docs/spec/` and
   CLAUDE.md already match. No promise without code found, so no issue filed. #1 still waits on the Dell's boot.

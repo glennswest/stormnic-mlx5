@@ -86,8 +86,12 @@ stormbootx boot test does not touch the shelf).
 - [x] stormbootx build with this driver, and a way past FlexBoot: stormbootx#131 done in v0.37.0 (pin 66de545,
       `prefer_media_drivers = virtio,mlx5` on the verbose test medium `stormbootx-mlx5test`). No source change here
       since 66de545, so the pin is current.
-- [ ] **Waiting (2026-11-04):** the Dell's boot of `stormbootx-mlx5test`, asked with `wait-hardware`; the master
-      registers that golden first (it did not exist yet when asked).
+- [ ] **P0 (owner, 2026-11-14).** The first metal run comes by canary promotion (the master's): the rustnic medium with
+      this driver and its take-over goes canary-only to C2NR0Q2's MAC, then forge1's. Its console is posted on #1.
+- [ ] **FEC at bind (owner, 2026-11-14; #8):** set the standard FEC for the media and speed (25G RS, 10G/40G none,
+      50G/100G RS, PAM4 RS-544), with no config from stormbootx, and report driver/speed/FEC/link per port. Blocked:
+      PRM Rev 0.40 has no PPLM register, and the crate is PRM-only. The owner decides the layout's source (question on #1,
+      2026-11-13; recommended: PPLM layout facts from `mlx5_ifc.h`, cited, written fresh).
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 
