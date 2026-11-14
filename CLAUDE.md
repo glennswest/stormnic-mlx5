@@ -106,7 +106,8 @@ stormbootx boot test does not touch the shelf).
     #12, in progress (2026-11-14): microdns g16 logged all 60 of forge1's DISCOVERs, each offered at once, so TX
     is sound. `SNP.Receive` never drains the receive CQ; only GetStatus does, and stormbootx calls GetStatus only
     before a transmit. So OFFER n reaches smoltcp after DISCOVER n+1 has changed the xid, and is dropped. Fix:
-    Receive and WaitForPacket poll the CQ themselves.
+    Receive and WaitForPacket poll the CQ themselves. Done in 9d86045 (sc-build passed); pin asked on stormbootx#216;
+    waits on that pin and the master's canary boot for `leased` on an mlx5 port.
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 
