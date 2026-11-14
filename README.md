@@ -100,6 +100,9 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
   `MediaPresent` from port-change events and PAOS, `WaitForPacket`,
   `MCastIpToMac`. VLAN tags are kept. Own frames are not looped back (TIR
   self-loopback off); one that is, is dropped and logged once.
+  `Receive` and `WaitForPacket` drain the receive CQ themselves, so a frame
+  is handed up as soon as it lands, whether or not the caller calls
+  `GetStatus` (#12).
   `Statistics`, `StationAddress` and `NvData` return `UNSUPPORTED`.
 - **Consumes:** `EFI_PCI_IO_PROTOCOL` (`BY_DRIVER`, and `BY_CHILD_CONTROLLER`
   per child): config space, BAR 0 reads/writes (32- and 64-bit), DMA common

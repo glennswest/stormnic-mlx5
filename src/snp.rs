@@ -241,13 +241,25 @@ impl Child {
         self.port().num()
     }
 
-    /// Poll the queues and events and refresh `MediaPresent`.
-    fn refresh(&mut self) {
+    /// Drain the EQ and both CQs, so frames that have arrived are queued
+    /// (#12). `Receive` and `WaitForPacket` do this themselves: a caller
+    /// need not call GetStatus to see a frame. stormbootx calls GetStatus
+    /// only before it transmits, so an OFFER that waited for it reached
+    /// smoltcp after the next DISCOVER had changed the xid.
+    fn poll(&mut self) {
         // SAFETY: the NIC outlives its children, and TPL_CALLBACK keeps
         // every other user of it out.
         let n = unsafe { &mut *self.nic };
         let pci = unsafe { &mut *n.pci };
         n.eth.poll(&mut n.hca, pci);
+    }
+
+    /// Poll the queues and events and refresh `MediaPresent`.
+    fn refresh(&mut self) {
+        self.poll();
+        // SAFETY: as in `poll`.
+        let n = unsafe { &mut *self.nic };
+        let pci = unsafe { &mut *n.pci };
         self.status_calls = self.status_calls.wrapping_add(1);
         if self.status_calls % LINK_POLL_CALLS == 1 {
             n.eth.refresh_link(&mut n.hca, pci);
@@ -370,7 +382,9 @@ unsafe extern "efiapi" fn initialize(this: *const SimpleNetworkProtocol, _rx_ext
     if c.mode.state != NetworkState::STARTED {
         return if c.mode.state == NetworkState::STOPPED { Status::NOT_STARTED } else { Status::DEVICE_ERROR };
     }
-    // Frames that arrived before anyone listened are stale: drop them.
+    // Frames that arrived before anyone listened are stale: drop them,
+    // those still in the CQ too.
+    c.poll();
     while c.port().peek_rx().is_some() {
         c.port().pop_rx();
     }
@@ -591,6 +605,8 @@ unsafe extern "efiapi" fn receive(
     if size.is_null() || buffer.is_null() {
         return Status::INVALID_PARAMETER;
     }
+    // The CQ, not only what an earlier GetStatus queued (#12).
+    c.poll();
     loop {
         let Some((mem, len)) = c.port().peek_rx() else {
             return Status::NOT_READY;
@@ -650,7 +666,13 @@ unsafe extern "efiapi" fn wait_notify(event: Event, ctx: *mut c_void) {
     if unsafe { (*c.nic).dead } {
         return;
     }
-    if c.mode.state == NetworkState::INITIALIZED && c.port().rx_ready() {
+    if c.mode.state != NetworkState::INITIALIZED {
+        return;
+    }
+    // Notify functions run at TPL_CALLBACK, which every SNP call holds, so
+    // this never runs inside one (#12: the CQ, not only what GetStatus queued).
+    c.poll();
+    if c.port().rx_ready() {
         let _ = unsafe { (bs().signal_event)(event) };
     }
 }

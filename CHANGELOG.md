@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### 2026-11-14 (#12)
+- **fix:** `SNP.Receive` and `WaitForPacket`'s notify drain the EQ and CQs themselves; `Initialize`'s stale-frame
+  drop covers the CQ too. Before, only `GetStatus` moved completions into the receive queue, and stormbootx calls it
+  only before a transmit, so each DHCP OFFER reached smoltcp after the next DISCOVER (every 2 s) had changed the
+  xid, and was dropped: no lease on C2NR0Q2 or forge1. g16's microdns logged every DISCOVER and offered each at once.
+
 ### 2026-11-14 (#8, metal)
 - **fix:** `fec_mode_active` is decoded as the bitmask the adb says it is (bit n = mode n, bit 2 RS), not as the
   enum's index. 09b0615 on C2NR0Q2's 25G ConnectX-4 Lx ports printed `FEC FAILED: … but the link runs other`:
