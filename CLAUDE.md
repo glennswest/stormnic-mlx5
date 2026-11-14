@@ -97,7 +97,8 @@ stormbootx boot test does not touch the shelf).
       RS-544) via PPLM (read-modify-write, read back, PAOS down/up if it was up), module from PDDR, one line per port
       (driver, BDF, MAC, PTYS media/speed, module, FEC, link; `FEC FAILED: …` loud). Layouts from mstflint's adb
       (owner: Mellanox docs), docs/spec/fec.md. Its HW-CHECKs come with the first metal run.
-  - [ ] Pin the commit in stormbootx (`STORMNIC_MLX5_REF`): say so on stormbootx#73/#202.
+  - [x] Pin the commit in stormbootx (`STORMNIC_MLX5_REF`): 09b0615 asked for on stormbootx#202 (2026-11-14; sc-build passed).
+        stormbootx still pins 66de545; #1 waits on stormbootx#202 (pin + rustnic medium), then the master's canary boot.
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 

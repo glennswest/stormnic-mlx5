@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-14 (#1)
+- **docs:** Work plan: stormnic-mlx5 09b0615 asked for as the stormbootx pin (stormbootx#202); #1 waits on that pin and the canary boot.
+
 ### 2026-11-14 (#8)
 - **feat:** The standard FEC at bind: PPLM (0x5023) is read, each speed's `fec_override_admin` set to its IEEE
   standard where `fec_override_cap` offers it (10G/40G none, 25G/50G/100G RS, PAM4 RS-544), written and read back;
