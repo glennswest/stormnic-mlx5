@@ -953,7 +953,7 @@ pub mod diag {
     /// lane 2k+1 at 15:0 of dword `base + 4k`.
     fn lane16(r: &[u8], base: usize, lane: usize) -> u32 {
         let off = base + 4 * (lane / 2);
-        if lane % 2 == 0 {
+        if lane.is_multiple_of(2) {
             pg(r, off, 31, 16)
         } else {
             pg(r, off, 15, 0)
