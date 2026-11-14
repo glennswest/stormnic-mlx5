@@ -461,6 +461,216 @@ impl core::fmt::Display for Media {
     }
 }
 
+/// PPLM, Port Phy Link Mode (register 0x5023): the FEC override per speed.
+/// Mellanox's PRM register database as published in mstflint,
+/// `tools_layouts/adb/prm/hca/ext/register_access_table.adb`, node
+/// `pplm_reg_ext` (source_doc `NIC_PRM_internal` 0.0.65j; docs/spec/fec.md).
+/// An adb offset `0xB.b` is byte B, bit b from the LSB of that big-endian
+/// dword, checked against PRM Rev 0.40 Tables 108/110 (docs/spec/fec.md 1).
+pub mod pplm {
+    use super::{get, put};
+
+    pub const ID: u32 = 0x5023;
+    /// `pplm_reg_ext` size 0x80.
+    pub const LEN: usize = 0x80;
+    /// `fec_mode_active`, 0xC.0, 24 bits.
+    pub const ACTIVE: (usize, u32, u32) = (0x0c, 23, 0);
+
+    /// One speed's `fec_override_cap_*` / `fec_override_admin_*` pair: the
+    /// cap is the bitmask the firmware offers, the admin a one-hot choice
+    /// (0 = auto, the firmware's own).
+    pub struct Speed {
+        pub name: &'static str,
+        pub cap: (usize, u32, u32),
+        pub admin: (usize, u32, u32),
+        /// The standard's one-hot value and its name.
+        pub want: u32,
+        pub fec: &'static str,
+    }
+
+    const NO_FEC: u32 = 0x1;
+    const RS: u32 = 0x4;
+    /// RS(544,514) in the 16-bit PAM4 fields.
+    const RS_544: u32 = 0x80;
+
+    /// Every speed whose standard FEC the driver sets: 10G/40G none,
+    /// 25G/50G/100G (NRZ) RS(528), PAM4 lanes RS(544). The 25G and 50G
+    /// admin fields must hold the same value (adb) - both RS here.
+    pub const SPEEDS: &[Speed] = &[
+        Speed { name: "10g/40g", cap: (0x10, 3, 0), admin: (0x14, 3, 0), want: NO_FEC, fec: "none" },
+        Speed { name: "25g", cap: (0x10, 7, 4), admin: (0x14, 7, 4), want: RS, fec: "rs" },
+        Speed { name: "50g", cap: (0x10, 11, 8), admin: (0x14, 11, 8), want: RS, fec: "rs" },
+        Speed { name: "100g", cap: (0x10, 15, 12), admin: (0x14, 15, 12), want: RS, fec: "rs" },
+        Speed { name: "50g-pam4", cap: (0x1c, 15, 0), admin: (0x24, 15, 0), want: RS_544, fec: "rs-544" },
+        Speed { name: "100g-pam4x2", cap: (0x1c, 31, 16), admin: (0x24, 31, 16), want: RS_544, fec: "rs-544" },
+        Speed { name: "200g-pam4x4", cap: (0x18, 15, 0), admin: (0x20, 15, 0), want: RS_544, fec: "rs-544" },
+        Speed { name: "400g-pam4x8", cap: (0x18, 31, 16), admin: (0x20, 31, 16), want: RS_544, fec: "rs-544" },
+    ];
+
+    /// The PPLM speed field for a PTYS speed (`layout::PROTOS`).
+    pub fn for_speed(speed: &str) -> Option<&'static Speed> {
+        let name = match speed {
+            "10g" | "40g" => "10g/40g",
+            s => s,
+        };
+        SPEEDS.iter().find(|s| s.name == name)
+    }
+
+    fn field(b: &[u8], f: (usize, u32, u32)) -> u32 {
+        get(b, f.0, f.1, f.2)
+    }
+
+    /// Does the firmware offer the standard for this speed?
+    pub fn offered(reg: &[u8], s: &Speed) -> bool {
+        field(reg, s.cap) & s.want != 0
+    }
+
+    pub fn admin(reg: &[u8], s: &Speed) -> u32 {
+        field(reg, s.admin)
+    }
+
+    /// Set every offered speed's admin to its standard in a PPLM read
+    /// (the rest of it kept, a read-modify-write). The admin of a speed
+    /// that does not offer its standard is left as it is. True if anything
+    /// changed.
+    pub fn apply(reg: &mut [u8]) -> bool {
+        let mut changed = false;
+        for s in SPEEDS {
+            if offered(reg, s) && admin(reg, s) != s.want {
+                put(reg, s.admin.0, s.admin.1, s.admin.2, s.want);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// `fec_mode_active` (adb enum), as the report names it.
+    pub fn active_name(v: u32) -> &'static str {
+        match v {
+            0x0 => "none",
+            0x1 => "fc",
+            0x2 => "rs",
+            0x3 => "rs-ll",
+            0x7 => "rs-544",
+            0x9 => "rs-ll-50g",
+            _ => "other",
+        }
+    }
+
+    /// The `fec_mode_active` value that is a speed's standard.
+    pub fn active_is(v: u32, fec: &str) -> bool {
+        active_name(v) == fec
+    }
+}
+
+/// PDDR, Port Diagnostics Database (register 0x5031), page 3 "Module Info":
+/// what is plugged into the port. mstflint's adb, nodes `pddr_reg_ext`
+/// (`page_select` 0x4.0, 8 bits; `page_data` from 0x8) and
+/// `pddr_module_info_ext` (offsets below are within the page).
+pub mod pddr {
+    use super::get;
+
+    pub const ID: u32 = 0x5031;
+    pub const LEN: usize = 0x100;
+    pub const PAGE_SELECT: (usize, u32, u32) = (0x04, 7, 0);
+    pub const MODULE_INFO_PAGE: u32 = 3;
+    const PAGE: usize = 0x08;
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct Module {
+        /// `cable_identifier`, 0x4.8.
+        pub identifier: u32,
+        /// `cable_type`, 0x4.28.
+        pub cable_type: u32,
+        /// `cable_length`, 0x4.16, metres (non-CMIS).
+        pub length: u32,
+        /// `vendor_name` 0x14, `vendor_pn` 0x24: 16 ASCII bytes each.
+        pub vendor: [u8; 16],
+        pub pn: [u8; 16],
+    }
+
+    pub fn module(reg: &[u8]) -> Option<Module> {
+        if reg.len() < PAGE + 0x34 {
+            return None;
+        }
+        let p = &reg[PAGE..];
+        let mut m = Module {
+            identifier: get(p, 0x04, 15, 8),
+            cable_type: get(p, 0x04, 31, 28),
+            length: get(p, 0x04, 23, 16),
+            vendor: [0; 16],
+            pn: [0; 16],
+        };
+        m.vendor.copy_from_slice(&p[0x14..0x24]);
+        m.pn.copy_from_slice(&p[0x24..0x34]);
+        Some(m)
+    }
+
+    fn identifier(v: u32) -> &'static str {
+        match v {
+            0 => "QSFP28",
+            1 => "QSFP+",
+            2 => "SFP28/SFP+",
+            3 => "QSA",
+            4 => "backplane",
+            5 => "SFP-DD",
+            6 => "QSFP-DD",
+            7 => "QSFP-CMIS",
+            8 => "OSFP",
+            _ => "module",
+        }
+    }
+
+    fn cable_type(v: u32) -> &'static str {
+        match v {
+            1 => "active cable",
+            2 => "optical",
+            3 => "passive copper",
+            5 => "twisted pair",
+            _ => "",
+        }
+    }
+
+    fn ascii(b: &[u8]) -> &str {
+        let n = b.iter().position(|&c| !(0x20..0x7f).contains(&c)).unwrap_or(b.len());
+        core::str::from_utf8(&b[..n]).unwrap_or("").trim_end()
+    }
+
+    impl core::fmt::Display for Module {
+        /// `SFP28/SFP+ optical FS SFP-25GSR-85`, `QSFP28 passive copper 3m …`
+        /// or `no module`.
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            if self.cable_type == 4 {
+                return f.write_str("no module");
+            }
+            f.write_str(identifier(self.identifier))?;
+            let t = cable_type(self.cable_type);
+            if !t.is_empty() {
+                write!(f, " {t}")?;
+            }
+            if self.cable_type != 2 && self.length != 0 {
+                write!(f, " {}m", self.length)?;
+            }
+            for s in [ascii(&self.vendor), ascii(&self.pn)] {
+                if !s.is_empty() {
+                    write!(f, " {s}")?;
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+/// How setting the standard FEC went (#8), for the report line.
+pub enum FecResult<'a> {
+    /// The standard is the port's admin (set now or already); with the
+    /// `fec_mode_active` read when the link is up.
+    Standard { active: Option<u32> },
+    /// No FEC field for the speed (1G): nothing to set, the standard is none.
+    NoField,
+    Failed(&'a str),
+}
+
 /// What a bound port reports: the one line per port (#8).
 pub struct Report<'a> {
     pub version: &'a str,
@@ -471,8 +681,9 @@ pub struct Report<'a> {
     pub cap: u32,
     pub oper: u32,
     pub up: bool,
-    /// Why the standard FEC is not set, if it is not.
-    pub fec_failed: Option<&'a str>,
+    /// What PDDR says is plugged in, if it answered.
+    pub module: Option<&'a pddr::Module>,
+    pub fec: FecResult<'a>,
 }
 
 impl core::fmt::Display for Report<'_> {
@@ -486,9 +697,25 @@ impl core::fmt::Display for Report<'_> {
         match media(self.cap, self.oper, self.up) {
             Some(md) => {
                 write!(f, "{} {}{}, ", md, md.speed, if md.running { "" } else { " capable" })?;
-                match self.fec_failed {
-                    None => write!(f, "fec {} (standard for {}), ", md.fec.name(), md)?,
-                    Some(why) => write!(f, "FEC FAILED: standard {} for {} not set: {why}, ", md.fec.name(), md)?,
+                if let Some(m) = self.module {
+                    write!(f, "{m}, ")?;
+                }
+                let std = md.fec.name();
+                match self.fec {
+                    FecResult::Standard { active: Some(a) } if !pplm::active_is(a, std) => write!(
+                        f,
+                        "FEC FAILED: standard {std} for {md} set, but the link runs {}, ",
+                        pplm::active_name(a)
+                    )?,
+                    FecResult::Standard { active } => {
+                        write!(f, "fec {std} (standard for {md}")?;
+                        if active.is_some() {
+                            write!(f, ", running {std}")?;
+                        }
+                        f.write_str("), ")?
+                    }
+                    FecResult::NoField => write!(f, "fec {std} (standard for {md}), ")?,
+                    FecResult::Failed(why) => write!(f, "FEC FAILED: standard {std} for {md} not set: {why}, ")?,
                 }
             }
             None => write!(f, "media unknown (PTYS names no protocol), FEC FAILED: no media, so no standard, ")?,

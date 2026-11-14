@@ -304,19 +304,19 @@ unsafe extern "efiapi" fn start(
     }
     b.nics.push(nic);
     // The default console output: one line per port (#8, as stormnic-mlx4#16):
-    // driver, PCI location, MAC, media and speed (PTYS), FEC and link.
-    let e = &n.eth;
-    let (cap, oper) = e.protos();
+    // driver, PCI location, MAC, media and speed (PTYS), module (PDDR), FEC
+    // (PPLM) and link.
+    let (cap, oper) = n.eth.protos();
     let line = layout::Report {
         version: env!("CARGO_PKG_VERSION"),
         nic: &tag["stormnic-mlx5: ".len()..],
-        port: e.num(),
-        mac: e.mac(),
+        port: n.eth.num(),
+        mac: n.eth.mac(),
         cap,
         oper,
-        up: e.link_up(),
-        // The FEC is set through PPLM, which PRM Rev 0.40 does not have (#8).
-        fec_failed: Some("PPLM is not in PRM Rev 0.40 (#8)"),
+        up: n.eth.link_up(),
+        module: n.eth.module(),
+        fec: n.eth.fec(&mut n.hca, pci),
     };
     say!("{line}, SNP installed");
     Status::SUCCESS

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### 2026-11-14 (#8)
+- **feat:** The standard FEC at bind: PPLM (0x5023) is read, each speed's `fec_override_admin` set to its IEEE
+  standard where `fec_override_cap` offers it (10G/40G none, 25G/50G/100G RS, PAM4 RS-544), written and read back;
+  the port is taken down and up (PAOS) if it was already up. The port line gives the module (PDDR 0x5031 page 3),
+  `fec rs (standard for …, running rs)` from `fec_mode_active`, or `FEC FAILED: …` (also an alarm).
+- **docs:** `docs/spec/fec.md`: PPLM and PDDR layouts from Mellanox's PRM register database in mstflint (BSD
+  terms; owner: "take it mellanox docs"), the adb bit numbering checked against PRM Rev 0.40. NOTICE and the
+  crate's source rule say so.
+
 ### 2026-11-13 (#8)
 - **feat:** One console line per port: driver, PCI location, MAC, media and speed from PTYS (`eth_proto_oper` when
   up, else the fastest of `eth_proto_capability`), FEC and link. `layout::PROTOS` names every PRM Table 108 protocol

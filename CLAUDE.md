@@ -26,6 +26,11 @@ scratch files go in `tmp/`.
   `NOTICE` acknowledges the PRM. Download it into `tmp/prm/` to read it (it
   is not committed). Rev 0.40 has no opcode for anything after chapter 12;
   anything it does not settle is a hardware check (docs/spec/connectx4.md §HW).
+  Registers Rev 0.40 lacks (PPLM, PDDR) come from **Mellanox's own PRM register
+  database in mstflint** (`tools_layouts/adb/prm/hca/ext/register_access_table.adb`,
+  GPL-2.0 or OpenIB.org BSD, taken under BSD; owner on #8, 2026-11-14: "take it
+  mellanox docs, no exception needed"). Cite the adb node (`pplm_reg_ext`) as a PRM
+  section is cited; see docs/spec/fec.md.
 - It is a *driver*: an EFI boot-service driver (subsystem 11) that installs
   `EFI_DRIVER_BINDING_PROTOCOL`. stormbootx loads it, then connects controllers.
 - A platform's own driver must win: Supported tries a `BY_DRIVER` open of the
@@ -88,14 +93,11 @@ stormbootx boot test does not touch the shelf).
       since 66de545, so the pin is current.
 - [ ] **P0 (owner, 2026-11-14).** The first metal run comes by canary promotion (the master's): the rustnic medium with
       this driver and its take-over goes canary-only to C2NR0Q2's MAC, then forge1's. Its console is posted on #1.
-- [ ] **FEC at bind (owner, 2026-11-14; #8):** set the standard FEC for the media and speed (25G RS, 10G/40G none,
-      50G/100G RS, PAM4 RS-544), with no config from stormbootx, and report driver/speed/FEC/link per port. Blocked:
-      PRM Rev 0.40 has no PPLM register, and the crate is PRM-only. The owner decides the layout's source (question on #1,
-      2026-11-13; recommended: PPLM layout facts from `mlx5_ifc.h`, cited, written fresh).
-  - [x] The part that does not wait (master, 2026-11-13): one line per port (driver, BDF, MAC, PTYS media/speed, FEC,
-        link) and the media/speed → standard FEC table `layout::PROTOS`, host-tested. Says `FEC FAILED` until PPLM.
-  - [ ] Set it via PPLM (+ PAOS toggle if up), read back, once the owner settles the layout's source (wait-owner #8;
-        the master suggests a newer public NVIDIA PRM that documents PPLM/PDDR). PDDR (module media) is also not in 0.40.
+- [x] **FEC at bind (owner, 2026-11-14; #8):** the standard FEC per media/speed (25G/50G/100G RS, 10G/40G none, PAM4
+      RS-544) via PPLM (read-modify-write, read back, PAOS down/up if it was up), module from PDDR, one line per port
+      (driver, BDF, MAC, PTYS media/speed, module, FEC, link; `FEC FAILED: …` loud). Layouts from mstflint's adb
+      (owner: Mellanox docs), docs/spec/fec.md. Its HW-CHECKs come with the first metal run.
+  - [ ] Pin the commit in stormbootx (`STORMNIC_MLX5_REF`): say so on stormbootx#73/#202.
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 

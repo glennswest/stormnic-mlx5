@@ -9,6 +9,7 @@
 //! shows unicast arrives without it, everything (docs/spec/steering.md 5.6).
 
 use alloc::collections::VecDeque;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{fence, Ordering};
 
@@ -19,7 +20,7 @@ use uefi::boot;
 use crate::cmd::BAR;
 use crate::dma::{DmaBuf, Mem, PAGE};
 use crate::hca::{self, input, Failed, Hca};
-use crate::layout::{self, cqe, get, op, put, put32, put64, wqe};
+use crate::layout::{self, cqe, get, op, pddr, pplm, put, put32, put64, wqe};
 use crate::pci::PciIo;
 
 /// The largest frame handed to or taken from the SNP: 1500 + 14 + a VLAN tag.
@@ -111,6 +112,11 @@ pub struct Eth {
     /// PTYS eth_proto_capability and eth_proto_oper (PRM Table 108).
     cap: u32,
     oper: u32,
+    /// The standard FEC at bind (#8): set (or already so), no field for the
+    /// speed, or why not.
+    fec: Fec,
+    /// What PDDR's module page says is plugged in.
+    module: Option<layout::pddr::Module>,
     dbr: DmaBuf,
     eq: Ring,
     tx_cq: Ring,
@@ -185,12 +191,26 @@ fn destroy(h: &mut Hca, pci: &mut PciIo, opcode: u16, id: u32) -> bool {
 
 /// ACCESS_REG read of a port register (docs/spec/cmd.md 6.20); its data.
 fn read_reg(h: &mut Hca, pci: &mut PciIo, id: u32, len: usize) -> Result<Vec<u8>, Failed> {
+    read_reg_at(h, pci, id, len, &[])
+}
+
+/// The same with more index fields (byte offset in the register, hi, lo, value).
+fn read_reg_at(
+    h: &mut Hca,
+    pci: &mut PciIo,
+    id: u32,
+    len: usize,
+    index: &[(usize, u32, u32, u32)],
+) -> Result<Vec<u8>, Failed> {
     let mut i = input(op::ACCESS_REG, 1, 0x10 + len);
     put(&mut i, 0x08, 15, 0, id);
     // local_port is the index field of every port register (HW-CHECK 15).
     put(&mut i, 0x10, 23, 16, LOCAL_PORT);
     if id == REG_PTYS {
         put(&mut i, 0x10, 2, 0, 0b100);
+    }
+    for &(off, hi, lo, v) in index {
+        put(&mut i, 0x10 + off, hi, lo, v);
     }
     let mut o = alloc::vec![0u8; 0x10 + len];
     h.exec(pci, &i, &mut o)?;
@@ -206,7 +226,34 @@ fn write_reg(h: &mut Hca, pci: &mut PciIo, id: u32, data: &[u8]) -> Result<(), F
     h.exec(pci, &i, &mut o)
 }
 
+/// How the standard FEC went at bind (#8).
+enum Fec {
+    Standard,
+    NoField,
+    Failed(String),
+}
+
 impl Eth {
+    /// The report's FEC part, with `fec_mode_active` read now if the link is up.
+    pub fn fec(&self, h: &mut Hca, pci: &mut PciIo) -> layout::FecResult<'_> {
+        match &self.fec {
+            Fec::Standard => layout::FecResult::Standard {
+                active: if self.link {
+                    read_reg(h, pci, pplm::ID, pplm::LEN).ok().map(|r| {
+                        let (o, hi, lo) = pplm::ACTIVE;
+                        get(&r, o, hi, lo)
+                    })
+                } else {
+                    None
+                },
+            },
+            Fec::NoField => layout::FecResult::NoField,
+            Fec::Failed(why) => layout::FecResult::Failed(why),
+        }
+    }
+    pub fn module(&self) -> Option<&layout::pddr::Module> {
+        self.module.as_ref()
+    }
     pub fn num(&self) -> u32 {
         LOCAL_PORT
     }
@@ -490,6 +537,8 @@ pub fn open(h: &mut Hca, pci: &mut PciIo) -> Result<Eth, Failed> {
         speed: "",
         cap: 0,
         oper: 0,
+        fec: Fec::NoField,
+        module: None,
         dbr: dma(pci, PAGE, "doorbell records")?,
         eq: Ring { buf: dma(pci, 64 << LOG_EQ, "EQ")?, num: 0, log: LOG_EQ, cc: 0 },
         tx_cq: Ring { buf: dma(pci, 64 << LOG_TX_CQ, "send CQ")?, num: 0, log: LOG_TX_CQ, cc: 0 },
@@ -718,19 +767,102 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
         }
     }
 
-    // Bring the port up if it was administratively down (PAOS, docs/spec/cmd.md 6.21).
+    // What is plugged in (PDDR module info page, docs/spec/fec.md 3).
+    let (o, hi, lo) = pddr::PAGE_SELECT;
+    match read_reg_at(h, pci, pddr::ID, pddr::LEN, &[(o, hi, lo, pddr::MODULE_INFO_PAGE)]) {
+        Ok(r) => e.module = pddr::module(&r),
+        Err(_) => trace!("  PDDR module info: not answered"),
+    }
+    if let Some(m) = &e.module {
+        trace!("  module: {m}");
+    }
+
+    // The standard FEC for every speed, before the port trains (#8,
+    // docs/spec/fec.md 2): PPLM takes effect at link training.
+    let changed = set_fec(&mut e, h, pci);
+
+    // Bring the port up if it was administratively down (PAOS, docs/spec/cmd.md 6.21);
+    // if it was up already and the FEC changed, take it down and up so it trains
+    // again with it (PRM 11.1.2's note on admin fields, PTYS and PPLM alike).
     if let Ok(paos) = read_reg(h, pci, REG_PAOS, 16) {
         let admin = get(&paos, 0, 11, 8);
         trace!("  PAOS: admin {admin}, oper {}", get(&paos, 0, 3, 0));
-        if admin != 1 && admin != 3 {
-            let mut d = [0u8; 16];
-            put(&mut d, 0, 23, 16, LOCAL_PORT);
-            put(&mut d, 0, 11, 8, 1);
-            put(&mut d, 4, 31, 31, 1);
-            let _ = write_reg(h, pci, REG_PAOS, &d);
+        let up = admin == 1 || admin == 3;
+        if up && changed {
+            trace!("  PAOS: down and up again for the FEC");
+            let _ = write_reg(h, pci, REG_PAOS, &paos_admin(2));
+        }
+        if !up || changed {
+            let _ = write_reg(h, pci, REG_PAOS, &paos_admin(1));
         }
     }
     Ok(())
+}
+
+fn fail(e: &mut Eth, why: String) {
+    alarm!("stormnic-mlx5: port {LOCAL_PORT}: FEC FAILED: {why}");
+    e.fec = Fec::Failed(why);
+}
+
+/// A PAOS write of admin_status with ase (PRM Table 110).
+fn paos_admin(admin: u32) -> [u8; 16] {
+    let mut d = [0u8; 16];
+    put(&mut d, 0, 23, 16, LOCAL_PORT);
+    put(&mut d, 0, 11, 8, admin);
+    put(&mut d, 4, 31, 31, 1);
+    d
+}
+
+/// Set each speed's standard FEC in PPLM (read-modify-write), read it back
+/// and judge the port's own speed: the fastest it runs or can. True if PPLM
+/// changed. A failure is loud (alarm!, with the trace) and kept for the line.
+fn set_fec(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> bool {
+    if let Ok(p) = read_reg(h, pci, REG_PTYS, 64) {
+        e.cap = get(&p, 0x0c, 31, 0);
+        e.oper = get(&p, 0x24, 31, 0);
+    }
+    let speed = layout::media(e.cap, e.oper, false).map_or("", |m| m.speed);
+    let Some(want) = pplm::for_speed(speed) else {
+        trace!("  FEC: no PPLM field for {speed:?}; its standard is none");
+        e.fec = Fec::NoField;
+        return false;
+    };
+    let Ok(mut reg) = read_reg(h, pci, pplm::ID, pplm::LEN) else {
+        fail(e, "PPLM read refused".into());
+        return false;
+    };
+    for s in pplm::SPEEDS {
+        let (o, hi, lo) = s.cap;
+        let cap = get(&reg, o, hi, lo);
+        if cap != 0 {
+            trace!("  PPLM {}: cap {cap:#x}, admin {:#x}, standard {}", s.name, pplm::admin(&reg, s), s.fec);
+        }
+    }
+    let changed = pplm::apply(&mut reg);
+    if changed {
+        put(&mut reg, 0, 23, 16, LOCAL_PORT);
+        if write_reg(h, pci, pplm::ID, &reg).is_err() {
+            fail(e, "PPLM write refused".into());
+            return false;
+        }
+        match read_reg(h, pci, pplm::ID, pplm::LEN) {
+            Ok(r) => reg = r,
+            Err(_) => {
+                fail(e, "PPLM read-back refused".into());
+                return true;
+            }
+        }
+    }
+    if pplm::admin(&reg, want) == want.want {
+        trace!("  FEC: {} {} ({})", want.name, want.fec, if changed { "set" } else { "already" });
+        e.fec = Fec::Standard;
+    } else if !pplm::offered(&reg, want) {
+        let (o, hi, lo) = want.cap;
+        fail(e, alloc::format!("the firmware offers no {} override for {} (cap {:#x})", want.fec, want.name, get(&reg, o, hi, lo)));
+    } else {
+        fail(e, alloc::format!("{} admin reads back {:#x}, not {:#x}", want.name, pplm::admin(&reg, want), want.want));
+    }
+    changed
 }
 
 /// Destroy the data path's objects (steering.md 8, teardown) and free its

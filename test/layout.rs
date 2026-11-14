@@ -189,9 +189,99 @@ fn media_from_oper_when_up_else_capability() {
     assert!(media(0, 0, false).is_none());
 }
 
+fn module() -> pddr::Module {
+    let mut r = vec![0u8; pddr::LEN];
+    // page data from 0x8: identifier 2 (SFP28/SFP+), type 2 (optical).
+    put(&mut r, 0x8 + 0x4, 15, 8, 2);
+    put(&mut r, 0x8 + 0x4, 31, 28, 2);
+    r[0x8 + 0x14..0x8 + 0x14 + 16].copy_from_slice(b"FS              ");
+    r[0x8 + 0x24..0x8 + 0x24 + 16].copy_from_slice(b"SFP-25GSR-85    ");
+    pddr::module(&r).unwrap()
+}
+
+#[test]
+fn pddr_module_info() {
+    assert_eq!(module().to_string(), "SFP28/SFP+ optical FS SFP-25GSR-85");
+    let mut r = vec![0u8; pddr::LEN];
+    put(&mut r, 0x8 + 0x4, 31, 28, 3);
+    put(&mut r, 0x8 + 0x4, 23, 16, 3);
+    r[0x8 + 0x14..0x8 + 0x18].copy_from_slice(b"Mlnx");
+    assert_eq!(pddr::module(&r).unwrap().to_string(), "QSFP28 passive copper 3m Mlnx");
+    put(&mut r, 0x8 + 0x4, 31, 28, 4);
+    assert_eq!(pddr::module(&r).unwrap().to_string(), "no module");
+    assert!(pddr::module(&r[..0x20]).is_none());
+    assert_eq!(pddr::PAGE_SELECT, (0x04, 7, 0));
+}
+
+/// A PPLM read as a ConnectX-4 Lx might give it: 10/40G offers none and FC,
+/// 25G and 50G none, FC and RS; admins auto (0); 100G offers nothing.
+fn pplm_read() -> Vec<u8> {
+    let mut r = vec![0u8; pplm::LEN];
+    put(&mut r, 0x10, 3, 0, 0x3);
+    put(&mut r, 0x10, 7, 4, 0x7);
+    put(&mut r, 0x10, 11, 8, 0x7);
+    // Bits the RMW must keep (plr_* admin at 0xC 31:24, 56G admin).
+    put(&mut r, 0x0c, 31, 24, 0xa5);
+    put(&mut r, 0x14, 19, 16, 0x2);
+    r
+}
+
+#[test]
+fn pplm_sets_each_offered_speed_to_its_standard() {
+    let mut r = pplm_read();
+    assert!(pplm::apply(&mut r));
+    assert_eq!(get(&r, 0x14, 3, 0), 0x1, "10G/40G: no FEC");
+    assert_eq!(get(&r, 0x14, 7, 4), 0x4, "25G: RS");
+    assert_eq!(get(&r, 0x14, 11, 8), 0x4, "50G: RS, as 25G must be");
+    assert_eq!(get(&r, 0x14, 15, 12), 0, "100G: not offered, left auto");
+    assert_eq!(get(&r, 0x0c, 31, 24), 0xa5);
+    assert_eq!(get(&r, 0x14, 19, 16), 0x2, "56G left as it was");
+    assert_eq!(get(&r, 0x24, 15, 0), 0, "PAM4: not offered, left auto");
+    // A second pass changes nothing.
+    assert!(!pplm::apply(&mut r));
+    let s25 = pplm::for_speed("25g").unwrap();
+    assert!(pplm::offered(&r, s25));
+    assert_eq!(pplm::admin(&r, s25), s25.want);
+    let s100 = pplm::for_speed("100g").unwrap();
+    assert!(!pplm::offered(&r, s100));
+}
+
+#[test]
+fn pplm_speed_fields() {
+    assert_eq!(pplm::ID, 0x5023);
+    assert_eq!(pddr::ID, 0x5031);
+    assert_eq!(pplm::for_speed("10g").unwrap().name, "10g/40g");
+    assert_eq!(pplm::for_speed("40g").unwrap().fec, "none");
+    assert_eq!(pplm::for_speed("25g").unwrap().fec, "rs");
+    assert_eq!(pplm::for_speed("100g").unwrap().fec, "rs");
+    assert!(pplm::for_speed("1g").is_none());
+    // The same standard as layout::PROTOS gives each speed.
+    for p in PROTOS {
+        if let Some(s) = pplm::for_speed(p.speed) {
+            assert_eq!(s.fec, p.fec.name(), "{}", p.media);
+        }
+    }
+    // Every admin field lies inside the register and fields do not overlap.
+    let mut seen = [0u32; pplm::LEN / 4];
+    for s in pplm::SPEEDS {
+        for (o, hi, lo) in [s.cap, s.admin] {
+            assert!(o + 4 <= pplm::LEN && hi >= lo);
+            let m = (((1u64 << (hi - lo + 1)) - 1) << lo) as u32;
+            assert_eq!(seen[o / 4] & m, 0, "{} overlaps", s.name);
+            seen[o / 4] |= m;
+        }
+        assert_eq!(s.want.count_ones(), 1, "{} is one-hot", s.name);
+    }
+    assert_eq!(pplm::active_name(0), "none");
+    assert_eq!(pplm::active_name(2), "rs");
+    assert_eq!(pplm::active_name(1), "fc");
+    assert_eq!(pplm::active_name(7), "rs-544");
+}
+
 #[test]
 fn report_line() {
     let cap = 1 << 29 | 1 << 28 | 1 << 27 | 1 << 13;
+    let m = module();
     let mut r = Report {
         version: "0.2.0",
         nic: "0000:84:00.0 15b3:1015 ConnectX-4 Lx",
@@ -200,22 +290,32 @@ fn report_line() {
         cap,
         oper: 1 << 29,
         up: true,
-        fec_failed: None,
+        module: Some(&m),
+        fec: FecResult::Standard { active: Some(2) },
     };
     assert_eq!(
         r.to_string(),
         "stormnic-mlx5 0.2.0: 0000:84:00.0 15b3:1015 ConnectX-4 Lx port 1: MAC 24:8a:07:0a:0b:0c, \
-         25GBASE-SR 25g, fec rs (standard for 25GBASE-SR), link up"
+         25GBASE-SR 25g, SFP28/SFP+ optical FS SFP-25GSR-85, fec rs (standard for 25GBASE-SR, running rs), link up"
     );
-    r.fec_failed = Some("PPLM is not in PRM Rev 0.40 (#8)");
+    // The link came up with another FEC than the one set: loud.
+    r.fec = FecResult::Standard { active: Some(1) };
+    assert!(r.to_string().contains("FEC FAILED: standard rs for 25GBASE-SR set, but the link runs fc, link up"));
+    r.fec = FecResult::Failed("PPLM write refused");
     r.up = false;
     r.oper = 0;
+    r.module = None;
     assert_eq!(
         r.to_string(),
         "stormnic-mlx5 0.2.0: 0000:84:00.0 15b3:1015 ConnectX-4 Lx port 1: MAC 24:8a:07:0a:0b:0c, \
          25GBASE-SR/KR/CR 25g capable, FEC FAILED: standard rs for 25GBASE-SR/KR/CR not set: \
-         PPLM is not in PRM Rev 0.40 (#8), no link"
+         PPLM write refused, no link"
     );
+    r.fec = FecResult::Standard { active: None };
+    assert!(r.to_string().ends_with("25g capable, fec rs (standard for 25GBASE-SR/KR/CR), no link"));
+    r.cap = 1 << 1;
+    r.fec = FecResult::NoField;
+    assert!(r.to_string().ends_with("1000BASE-KX 1g capable, fec none (standard for 1000BASE-KX), no link"));
     r.cap = 0;
     assert!(r.to_string().contains("media unknown (PTYS names no protocol), FEC FAILED: no media"));
 }
