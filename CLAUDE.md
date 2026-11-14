@@ -114,7 +114,9 @@ stormbootx boot test does not touch the shelf).
       info (phy_mngr/eth_an FSMs, neg mode, loopback), link-down info, module monitors (V, C, rx/tx power, bias) and
       latched flags (rx_los, tx_fault, …), PTYS cap/admin/oper + an_status/an_disable, PAOS, PPLM raw, PMLP lanes.
       Layouts from mstflint's adb (docs/spec/linkdiag.md). A linked port: the same lines in the trace only.
-      Then: sc-build, pin on stormbootx, the master's forge1 boot, the diagnosis on #13.
+      Done in 2aab9db + d11b572 (sc-build passed, check.sh, 24+3 host tests); pin asked on stormbootx#218 (2026-11-14).
+      Waits on that pin and a forge1 boot; then write the diagnosis (port/optic/fibre/far end/bring-up) on #13.
+      (#12 is proven on metal: serial 14, mlx5@9d86045, leased on C2NR0Q2 and forge1 :81, stormbootx#216.)
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 
