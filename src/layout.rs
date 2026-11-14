@@ -344,30 +344,155 @@ pub mod cqe {
     }
 }
 
-/// The speed PTYS `eth_proto_oper` names (PRM Table 108).
+/// The IEEE 802.3 standard FEC for a media and speed (owner, 2026-11-14;
+/// #8): no configuration, the driver picks it from what the port runs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fec {
+    /// 1G, 10G and 40G: no FEC.
+    None,
+    /// RS(528,514) "Clause 91" FEC: 25G (802.3by), 50G NRZ and 100G NRZ
+    /// (802.3bj/bm). PAM4 media would take RS(544,514); PRM Rev 0.40 names
+    /// no PAM4 protocol, so no row here does.
+    Rs,
+}
+
+impl Fec {
+    pub fn name(self) -> &'static str {
+        match self {
+            Fec::None => "none",
+            Fec::Rs => "rs",
+        }
+    }
+}
+
+/// One Ethernet protocol bit of PTYS `eth_proto_capability` / `_admin` /
+/// `_oper` (PRM 11.1.2, Table 108).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Proto {
+    pub bit: u32,
+    pub media: &'static str,
+    pub speed: &'static str,
+    pub mbps: u32,
+    pub fec: Fec,
+}
+
+const fn p(bit: u32, media: &'static str, speed: &'static str, mbps: u32, fec: Fec) -> Proto {
+    Proto { bit, media, speed, mbps, fec }
+}
+
+/// PRM Table 108, highest speed first, with each media's standard FEC.
+pub const PROTOS: &[Proto] = &[
+    p(22, "100GBASE-KR4", "100g", 100_000, Fec::Rs),
+    p(21, "100GBASE-SR4", "100g", 100_000, Fec::Rs),
+    p(20, "100GBASE-CR4", "100g", 100_000, Fec::Rs),
+    p(31, "50GBASE-KR2", "50g", 50_000, Fec::Rs),
+    p(30, "50GBASE-CR2", "50g", 50_000, Fec::Rs),
+    p(18, "50GBASE-SR2", "50g", 50_000, Fec::Rs),
+    p(16, "40GBASE-LR4/ER4", "40g", 40_000, Fec::None),
+    p(15, "40GBASE-SR4", "40g", 40_000, Fec::None),
+    p(7, "40GBASE-KR4", "40g", 40_000, Fec::None),
+    p(6, "40GBASE-CR4", "40g", 40_000, Fec::None),
+    p(29, "25GBASE-SR", "25g", 25_000, Fec::Rs),
+    p(28, "25GBASE-KR", "25g", 25_000, Fec::Rs),
+    p(27, "25GBASE-CR", "25g", 25_000, Fec::Rs),
+    p(14, "10GBASE-ER/LR", "10g", 10_000, Fec::None),
+    p(13, "10GBASE-SR", "10g", 10_000, Fec::None),
+    p(12, "10GBASE-CR", "10g", 10_000, Fec::None),
+    p(4, "10GBASE-KR", "10g", 10_000, Fec::None),
+    p(3, "10GBASE-KX4", "10g", 10_000, Fec::None),
+    p(2, "10GBASE-CX4", "10g", 10_000, Fec::None),
+    p(1, "1000BASE-KX", "1g", 1_000, Fec::None),
+    p(0, "SGMII", "1g", 1_000, Fec::None),
+];
+
+/// The protocols of a PTYS mask at its highest speed, fastest media first.
+pub fn fastest(mask: u32) -> impl Iterator<Item = &'static Proto> {
+    let top = PROTOS.iter().find(|p| mask & (1 << p.bit) != 0).map_or(0, |p| p.mbps);
+    PROTOS.iter().filter(move |p| top != 0 && p.mbps == top && mask & (1 << p.bit) != 0)
+}
+
+/// The speed PTYS `eth_proto_oper` names (PRM Table 108), e.g. `25g`.
 pub fn speed_name(oper: u32) -> &'static str {
-    const NAMES: &[(u32, &str)] = &[
-        (31, "50G"),
-        (30, "50G"),
-        (29, "25G"),
-        (28, "25G"),
-        (27, "25G"),
-        (22, "100G"),
-        (21, "100G"),
-        (20, "100G"),
-        (18, "50G"),
-        (16, "40G"),
-        (15, "40G"),
-        (14, "10G"),
-        (13, "10G"),
-        (12, "10G"),
-        (7, "40G"),
-        (6, "40G"),
-        (4, "10G"),
-        (3, "10G"),
-        (2, "10G"),
-        (1, "1G"),
-        (0, "1G"),
-    ];
-    NAMES.iter().find(|(b, _)| oper & (1 << b) != 0).map_or("", |(_, n)| n)
+    fastest(oper).next().map_or("", |p| p.speed)
+}
+
+/// What the port runs, or (with no link) the fastest it can: its media, the
+/// speed and that media's standard FEC. With several media at the top speed
+/// (a capability mask), they are named together, e.g. `25GBASE-SR/KR/CR`;
+/// they share the speed's standard FEC.
+pub struct Media {
+    pub media: [&'static str; 6],
+    pub count: usize,
+    pub speed: &'static str,
+    pub fec: Fec,
+    /// From `eth_proto_oper` (the link), not the capability.
+    pub running: bool,
+}
+
+pub fn media(cap: u32, oper: u32, up: bool) -> Option<Media> {
+    let (mask, running) = if up && speed_name(oper) != "" { (oper, true) } else { (cap, false) };
+    let mut m = Media { media: [""; 6], count: 0, speed: "", fec: Fec::None, running };
+    for p in fastest(mask) {
+        if m.count == 0 {
+            m.speed = p.speed;
+            m.fec = p.fec;
+        }
+        if m.count < m.media.len() {
+            m.media[m.count] = p.media;
+            m.count += 1;
+        }
+    }
+    (m.count != 0).then_some(m)
+}
+
+impl core::fmt::Display for Media {
+    /// `25GBASE-SR`, or `25GBASE-SR/KR/CR`: the first name whole, the
+    /// others by their suffix after `BASE-`.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (i, n) in self.media[..self.count].iter().enumerate() {
+            if i == 0 {
+                f.write_str(n)?;
+            } else {
+                f.write_str("/")?;
+                f.write_str(n.split_once("BASE-").map_or(n, |(_, s)| s))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What a bound port reports: the one line per port (#8).
+pub struct Report<'a> {
+    pub version: &'a str,
+    /// The PCI location, ID and name, e.g. `0000:84:00.0 15b3:1015 ConnectX-4 Lx`.
+    pub nic: &'a str,
+    pub port: u32,
+    pub mac: [u8; 6],
+    pub cap: u32,
+    pub oper: u32,
+    pub up: bool,
+    /// Why the standard FEC is not set, if it is not.
+    pub fec_failed: Option<&'a str>,
+}
+
+impl core::fmt::Display for Report<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let m = self.mac;
+        write!(
+            f,
+            "stormnic-mlx5 {}: {} port {}: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, ",
+            self.version, self.nic, self.port, m[0], m[1], m[2], m[3], m[4], m[5]
+        )?;
+        match media(self.cap, self.oper, self.up) {
+            Some(md) => {
+                write!(f, "{} {}{}, ", md, md.speed, if md.running { "" } else { " capable" })?;
+                match self.fec_failed {
+                    None => write!(f, "fec {} (standard for {}), ", md.fec.name(), md)?,
+                    Some(why) => write!(f, "FEC FAILED: standard {} for {} not set: {why}, ", md.fec.name(), md)?,
+                }
+            }
+            None => write!(f, "media unknown (PTYS names no protocol), FEC FAILED: no media, so no standard, ")?,
+        }
+        f.write_str(if self.up { "link up" } else { "no link" })
+    }
 }

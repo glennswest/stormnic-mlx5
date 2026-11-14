@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### 2026-11-13 (#8)
+- **feat:** One console line per port: driver, PCI location, MAC, media and speed from PTYS (`eth_proto_oper` when
+  up, else the fastest of `eth_proto_capability`), FEC and link. `layout::PROTOS` names every PRM Table 108 protocol
+  with its speed and IEEE 802.3 standard FEC (25G/50G/100G RS, 1G/10G/40G none), host-tested. The FEC is not set yet
+  (PPLM is not in PRM Rev 0.40; owner decision on #8), so the line says `FEC FAILED: standard … not set: …`. Speeds
+  are now lower case (`25g`).
+
 ### 2026-11-13
 - **docs:** Work plan: #1 is P0 (owner, 2026-11-14). The driver must set the standard FEC per media/speed at bind and
   report driver, speed, FEC and link per port, with no FEC config from stormbootx (replaces #8's `StormnicFec`). The

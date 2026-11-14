@@ -92,6 +92,10 @@ stormbootx boot test does not touch the shelf).
       50G/100G RS, PAM4 RS-544), with no config from stormbootx, and report driver/speed/FEC/link per port. Blocked:
       PRM Rev 0.40 has no PPLM register, and the crate is PRM-only. The owner decides the layout's source (question on #1,
       2026-11-13; recommended: PPLM layout facts from `mlx5_ifc.h`, cited, written fresh).
+  - [x] The part that does not wait (master, 2026-11-13): one line per port (driver, BDF, MAC, PTYS media/speed, FEC,
+        link) and the media/speed → standard FEC table `layout::PROTOS`, host-tested. Says `FEC FAILED` until PPLM.
+  - [ ] Set it via PPLM (+ PAOS toggle if up), read back, once the owner settles the layout's source (wait-owner #8;
+        the master suggests a newer public NVIDIA PRM that documents PPLM/PDDR). PDDR (module media) is also not in 0.40.
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
 

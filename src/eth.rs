@@ -108,6 +108,9 @@ pub struct Eth {
     mac: [u8; 6],
     link: bool,
     speed: &'static str,
+    /// PTYS eth_proto_capability and eth_proto_oper (PRM Table 108).
+    cap: u32,
+    oper: u32,
     dbr: DmaBuf,
     eq: Ring,
     tx_cq: Ring,
@@ -213,8 +216,9 @@ impl Eth {
     pub fn link_up(&self) -> bool {
         self.link
     }
-    pub fn speed(&self) -> &'static str {
-        self.speed
+    /// PTYS (eth_proto_capability, eth_proto_oper) as last read.
+    pub fn protos(&self) -> (u32, u32) {
+        (self.cap, self.oper)
     }
 
     /// PAOS oper_status and PTYS eth_proto_oper: is the link up, how fast.
@@ -223,11 +227,11 @@ impl Eth {
             return;
         };
         let up = get(&paos, 0, 3, 0) == 1;
-        let speed = if up {
-            read_reg(h, pci, REG_PTYS, 64).map_or("", |p| layout::speed_name(get(&p, 0x24, 31, 0)))
-        } else {
-            ""
-        };
+        if let Ok(p) = read_reg(h, pci, REG_PTYS, 64) {
+            self.cap = get(&p, 0x0c, 31, 0);
+            self.oper = get(&p, 0x24, 31, 0);
+        }
+        let speed = if up { layout::speed_name(self.oper) } else { "" };
         if up != self.link {
             note!(
                 self.link,
@@ -484,6 +488,8 @@ pub fn open(h: &mut Hca, pci: &mut PciIo) -> Result<Eth, Failed> {
         mac: [0; 6],
         link: false,
         speed: "",
+        cap: 0,
+        oper: 0,
         dbr: dma(pci, PAGE, "doorbell records")?,
         eq: Ring { buf: dma(pci, 64 << LOG_EQ, "EQ")?, num: 0, log: LOG_EQ, cc: 0 },
         tx_cq: Ring { buf: dma(pci, 64 << LOG_TX_CQ, "send CQ")?, num: 0, log: LOG_TX_CQ, cc: 0 },

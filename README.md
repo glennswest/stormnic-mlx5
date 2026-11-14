@@ -117,11 +117,21 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
 
 ## Console output
 
-Quiet by default: one line per NIC,
+Quiet by default: one line per port (#8): driver and version, PCI location,
+ID and name, MAC, media and speed, FEC, link,
 
 ```
-stormnic-mlx5 0.1.0: 0000:02:00.0 15b3:1015 ConnectX-4 Lx port 1: MAC xx:xx:xx:xx:xx:xx, link up 10G, SNP installed
+stormnic-mlx5 0.1.0: 0000:02:00.0 15b3:1015 ConnectX-4 Lx port 1: MAC xx:xx:xx:xx:xx:xx, 25GBASE-SR 25g, FEC FAILED: standard rs for 25GBASE-SR not set: PPLM is not in PRM Rev 0.40 (#8), link up, SNP installed
 ```
+
+The media and speed come from PTYS (PRM 11.1.2, Table 108): `eth_proto_oper`
+when the link is up, else the fastest of `eth_proto_capability`, named
+together (`25GBASE-SR/KR/CR 25g capable`). Each media has its IEEE 802.3
+standard FEC (`layout::PROTOS`): 25G, 50G and 100G RS(528); 1G, 10G and 40G
+none. No configuration chooses it. The driver does not set it yet: FEC is the
+PPLM register, which PRM Rev 0.40 does not have, so the line says
+`FEC FAILED` until that is settled (#8). Once it is set, the line reads
+`fec rs (standard for 25GBASE-SR)`.
 
 plus warnings and failures. A failure first replays the last 16 trace lines.
 Verbose prints every command (`    INIT_HCA (0x0): ok`), the capabilities, the
@@ -131,7 +141,8 @@ pages lent, the vport state and the data-path object numbers.
 
 `scripts/test-host.sh` runs the host tests of the UEFI-free code
 (`test/layout.rs`: bit fields, command header, entry and mailbox signatures,
-send WQE construction, CQE/EQE ownership, PTYS speeds; `test/trace.rs`: the
+send WQE construction, CQE/EQE ownership, PTYS speeds and media, the standard FEC per media, the
+per-port report line; `test/trace.rs`: the
 replay ring).
 
 On metal: only the Dell (C2NR0Q2) has an mlx5 card, and no pve VM can present

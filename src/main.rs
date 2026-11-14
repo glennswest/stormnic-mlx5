@@ -303,20 +303,22 @@ unsafe extern "efiapi" fn start(
         return Status::DEVICE_ERROR;
     }
     b.nics.push(nic);
-    // The default console output: one line per NIC (as stormnic-mlx4#16).
-    let version = env!("CARGO_PKG_VERSION");
+    // The default console output: one line per port (#8, as stormnic-mlx4#16):
+    // driver, PCI location, MAC, media and speed (PTYS), FEC and link.
     let e = &n.eth;
-    let link = match (e.link_up(), e.speed()) {
-        (true, "") => "link up".into(),
-        (true, s) => alloc::format!("link up {s}"),
-        (false, _) => "no link".into(),
+    let (cap, oper) = e.protos();
+    let line = layout::Report {
+        version: env!("CARGO_PKG_VERSION"),
+        nic: &tag["stormnic-mlx5: ".len()..],
+        port: e.num(),
+        mac: e.mac(),
+        cap,
+        oper,
+        up: e.link_up(),
+        // The FEC is set through PPLM, which PRM Rev 0.40 does not have (#8).
+        fec_failed: Some("PPLM is not in PRM Rev 0.40 (#8)"),
     };
-    say!(
-        "stormnic-mlx5 {version}: {} port {}: MAC {}, {link}, SNP installed",
-        &tag["stormnic-mlx5: ".len()..],
-        e.num(),
-        eth::Mac(e.mac())
-    );
+    say!("{line}, SNP installed");
     Status::SUCCESS
 }
 
