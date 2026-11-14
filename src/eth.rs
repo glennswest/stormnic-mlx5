@@ -779,7 +779,7 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
 
     // The standard FEC for every speed, before the port trains (#8,
     // docs/spec/fec.md 2): PPLM takes effect at link training.
-    let changed = set_fec(&mut e, h, pci);
+    let changed = set_fec(e, h, pci);
 
     // Bring the port up if it was administratively down (PAOS, docs/spec/cmd.md 6.21);
     // if it was up already and the FEC changed, take it down and up so it trains
