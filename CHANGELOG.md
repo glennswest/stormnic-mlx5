@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-11-15 (#13)
+- **docs:** Work plan: #13 pinned in stormbootx (bdd4375); forge1 :80 links since the owner moved its cable (switch
+  ports at fault). The diagnosis lines wait on a verbose `stormbootx-mlx5test` boot of forge1, where they are traced.
+
 ### 2026-11-14 (#8, verified)
 - **docs:** fec.md HW-CHECK 5 answered from metal (32ddb3f): `fec_mode_active` 0x4 on a 25G RS link; every linked
   ConnectX-4 Lx port on C2NR0Q2 and forge1 ran the standard RS. #8 closed; forge1 :80's missing link is #13.

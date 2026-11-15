@@ -118,6 +118,9 @@ stormbootx boot test does not touch the shelf).
       Layouts from mstflint's adb (docs/spec/linkdiag.md). A linked port: the same lines in the trace only.
       Done in 2aab9db + d11b572 (sc-build passed, check.sh, 24+3 host tests); pin asked on stormbootx#218 (2026-11-14).
       Waits on that pin and a forge1 boot; then write the diagnosis (port/optic/fibre/far end/bring-up) on #13.
+      Pinned (stormbootx bdd4375). Cause found by hand (owner, cables moved): the Dell switch's ports, not the card;
+      :80 links now (forge1 02:26Z 2026-11-15, mlx5@9d86045, running rs). With no unlinked port left, the lines
+      show only in the trace: wait-hardware for forge1 on the verbose `stormbootx-mlx5test` (mlx5@d11b572).
       (#12 is proven on metal: serial 14, mlx5@9d86045, leased on C2NR0Q2 and forge1 :81, stormbootx#216.)
 - [ ] With the boot's result: answer the HW-CHECK lists and fill in `TESTED` and the README table.
 - [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
