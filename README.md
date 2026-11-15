@@ -29,7 +29,7 @@ before ENABLE_HCA (`docs/spec/cmd.md` HW-CHECK 6).
 | PCI ID | Family | Run on |
 |---|---|---|
 | 15b3:1013 | ConnectX-4 (MT27700) | not yet |
-| 15b3:1015 | ConnectX-4 Lx (MT27710) | not yet (the Dell is the first target) |
+| 15b3:1015 | ConnectX-4 Lx (MT27710) | C2NR0Q2 (R230) and forge1 (R6415), 25GBASE-SR, both functions: bind, RS FEC, link, DHCP, NVMe/TCP attach, handoff ([`docs/spec/metal.md`](docs/spec/metal.md)) |
 | 15b3:1017 | ConnectX-5 (MT27800) | not yet |
 | 15b3:1019 | ConnectX-5 Ex (MT28800) | not yet |
 | 15b3:101b | ConnectX-6 (MT28908) | not yet |
@@ -51,6 +51,8 @@ open (HW-CHECK):
   SQ, RQ, TIS, TIR, WQE and CQE formats.
 - [`docs/spec/steering.md`](docs/spec/steering.md): NIC RX flow tables and
   the NIC vport context.
+- [`docs/spec/metal.md`](docs/spec/metal.md): which HW-CHECKs the first runs
+  on a ConnectX-4 Lx settle.
 
 Nothing is taken from the Linux mlx5 driver or iPXE's golan/flexboot (GPL);
 the crate is MIT ([`NOTICE`](NOTICE)).

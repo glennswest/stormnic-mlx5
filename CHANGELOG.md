@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### 2026-11-15 (#1)
+- **docs:** `docs/spec/metal.md`: the HW-CHECKs the first metal runs settle (serial 12/14 on C2NR0Q2 and forge1,
+  ConnectX-4 Lx); README's hardware table names the runs.
+- **chore:** `TESTED` = 15b3:1015, so its bind no longer traces "has not been run with this driver yet".
+
 ### 2026-11-15 (#13)
 - **docs:** Work plan: #13 pinned in stormbootx (bdd4375); forge1 :80 links since the owner moved its cable (switch
   ports at fault). The diagnosis lines wait on a verbose `stormbootx-mlx5test` boot of forge1, where they are traced.

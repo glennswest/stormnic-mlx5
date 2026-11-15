@@ -67,8 +67,9 @@ const DEVICES: &[(u16, &str)] = &[
     (0x101d, "ConnectX-6 Dx"),
     (0x101f, "ConnectX-6 Lx"),
 ];
-/// Devices this driver has been run on.
-const TESTED: &[u16] = &[];
+/// Devices this driver has been run on (docs/spec/metal.md): the ConnectX-4 Lx
+/// on C2NR0Q2 and forge1, serial 14.
+const TESTED: &[u16] = &[0x1015];
 
 /// `EFI_OPEN_PROTOCOL_*` attributes, for the raw `OpenProtocol` calls.
 const OPEN_GET_PROTOCOL: u32 = 0x02;
