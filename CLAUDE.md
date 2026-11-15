@@ -99,6 +99,8 @@ stormbootx boot test does not touch the shelf).
       (owner: Mellanox docs), docs/spec/fec.md. Its HW-CHECKs come with the first metal run.
   - [x] Pin the commit in stormbootx (`STORMNIC_MLX5_REF`): 09b0615 asked for on stormbootx#202 (2026-11-14; sc-build passed).
         stormbootx still pins 66de545; #1 waits on stormbootx#202 (pin + rustnic medium), then the master's canary boot.
+  - [x] **Verified on metal, #8 closed (32ddb3f, serial 12):** `fec rs (standard for 25GBASE-SR, running rs)` on
+        C2NR0Q2 02:00.0/.1 and forge1 84:00.1; forge1 84:00.0 has RS and no link → #13.
   - [x] First metal run (09b0615, C2NR0Q2): binds, PPLM written, PDDR module read, links up; the line said
         `FEC FAILED … runs other`: `fec_mode_active` is a bitmask (adb), read as an index. Fixed (#8): bitmask
         decode, raw PPLM/fec_mode_active values on the line. Re-pin in stormbootx after sc-build.

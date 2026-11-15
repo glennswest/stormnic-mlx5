@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-11-14 (#8, verified)
+- **docs:** fec.md HW-CHECK 5 answered from metal (32ddb3f): `fec_mode_active` 0x4 on a 25G RS link; every linked
+  ConnectX-4 Lx port on C2NR0Q2 and forge1 ran the standard RS. #8 closed; forge1 :80's missing link is #13.
+
 ### 2026-11-14 (#13)
 - **feat:** Under a port with no link after bring-up, the card's own account of why, one line per register group:
   PDDR troubleshooting (`monitor_opcode` named per the adb, and the firmware's status message), operation info

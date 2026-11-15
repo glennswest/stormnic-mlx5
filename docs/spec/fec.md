@@ -107,3 +107,9 @@ back with the 25G admin RS); 3 yes (`SFP28/SFP+ optical QSFPTEK QT-SFP28-SR`);
 
 5. `fec_mode_active` on a 25G RS link reads 0x4 (bitmask)? The line shows
    `running rs` if so; a `FEC FAILED … (fec_mode_active 0x…)` says otherwise.
+
+Second run (32ddb3f, stormbootx 0.42.0 serial 12, 2026-11-14 20:30Z): 5 yes.
+Every port with link ran RS on both cards: C2NR0Q2 02:00.0 and 02:00.1, forge1
+84:00.1, each `fec rs (standard for 25GBASE-SR, running rs)`, switch untouched.
+forge1 84:00.0 has RS set and no link (as under FlexBoot); its diagnosis is #13
+(docs/spec/linkdiag.md).
