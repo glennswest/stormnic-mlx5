@@ -104,7 +104,7 @@ stormbootx boot test does not touch the shelf).
   - [x] First metal run (09b0615, C2NR0Q2): binds, PPLM written, PDDR module read, links up; the line said
         `FEC FAILED … runs other`: `fec_mode_active` is a bitmask (adb), read as an index. Fixed (#8): bitmask
         decode, raw PPLM/fec_mode_active values on the line. Re-pin in stormbootx after sc-build.
-  - [ ] No DHCP lease over this driver's SNP on C2NR0Q2 (frames come in, none accepted): #1's P0, the receive path.
+  - [x] **#12 closed (verified on metal, serial 14):** No DHCP lease over this driver's SNP on C2NR0Q2 (frames come in, none accepted): #1's P0, the receive path.
     #12, in progress (2026-11-14): microdns g16 logged all 60 of forge1's DISCOVERs, each offered at once, so TX
     is sound. `SNP.Receive` never drains the receive CQ; only GetStatus does, and stormbootx calls GetStatus only
     before a transmit. So OFFER n reaches smoltcp after DISCOVER n+1 has changed the xid, and is dropped. Fix:
