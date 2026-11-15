@@ -5,6 +5,7 @@
 ### 2026-11-15 (#1)
 - **docs:** `docs/spec/metal.md`: the HW-CHECKs the first metal runs settle (serial 12/14 on C2NR0Q2 and forge1,
   ConnectX-4 Lx); README's hardware table names the runs.
+- **docs:** Work plan: #1 done (bind, link, TX/RX on metal, pinned); stormbootx#73 told.
 - **chore:** `TESTED` = 15b3:1015, so its bind no longer traces "has not been run with this driver yet".
 
 ### 2026-11-15 (#13)

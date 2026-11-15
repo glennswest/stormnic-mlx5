@@ -125,8 +125,9 @@ stormbootx boot test does not touch the shelf).
 - [x] **Bind, link, TX/RX proven on metal (serial 14, mlx5@9d86045):** C2NR0Q2 and forge1 lease, claim, attach the
       NVMe/TCP namespace and start the bootloader over this driver; forge1 02:24Z 2026-11-15 leases on :80 with both
       ports up and hands off to Linux. Pinned in stormbootx (d11b572).
-- [ ] (2026-11-15, in progress) With that result: answer the HW-CHECKs a working bring-up settles (`docs/spec/metal.md`),
-      `TESTED` = 15b3:1015, the README table; values only a verbose trace shows wait on #13's verbose forge1 boot.
-- [ ] Say so on stormbootx#73 once it passes, so the driver joins the default `STORMNIC_DRIVERS` and the rustnic media.
+- [x] HW-CHECKs a working bring-up settles in `docs/spec/metal.md`, `TESTED` = 15b3:1015, README table (e3b442b,
+      sc-build passed). Values only a verbose trace shows wait on #13's verbose forge1 boot.
+- [x] Said on stormbootx#73 (2026-11-15) that it passes, for the default `STORMNIC_DRIVERS`; #1 closed.
+      Open after #1: #15 (ExitBootServices quiesce bounds, stormbootx#219).
 
 After #1: jumbo frames (#7), for stormbootx#165.
