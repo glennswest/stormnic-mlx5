@@ -95,7 +95,7 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
   0x10). For each started function, a child handle with
   `EFI_DEVICE_PATH_PROTOCOL` (PCI path + MAC node, IfType 1) and
   `EFI_SIMPLE_NETWORK_PROTOCOL` (revision 0x00010000).
-- **SNP:** MaxPacketSize 1500, MediaHeaderSize 14, receive filters unicast,
+- **SNP:** MaxPacketSize 1500 (jumbo, 9000, is #7), MediaHeaderSize 14, receive filters unicast,
   broadcast and up to 16 multicast addresses, applied in software (the
   hardware delivers every frame the vport takes), a frame over 1518 bytes is
   dropped and logged once, MAC not changeable,
@@ -111,7 +111,8 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
   buffers below 4 GiB, attributes. While started it keeps memory space, bus
   master and dual-address-cycle on; `Stop` puts the original attributes back.
 - **ExitBootServices:** TEARDOWN_HCA (panic close, which stops bus mastering)
-  and DISABLE_HCA, then bus master off. Nothing is freed or printed.
+  and DISABLE_HCA, then bus master off. Nothing is freed or printed. The
+  command wait is not yet bounded for this path (up to 60 s per command; #15).
 - **A platform driver wins:** a NIC with an SNP already, or whose PCI I/O is
   held `BY_DRIVER`, is left alone.
 - **Configuration:** one switch, console output only: the EFI variable
@@ -157,7 +158,7 @@ PMLP's lane map:
 A linked port stays one line; the same lines go to the trace, to compare
 with a port that is down. Details: `docs/spec/linkdiag.md`.
 
-plus warnings and failures. A failure first replays the last 16 trace lines.
+Besides these, warnings and failures print; a failure first replays the last 16 trace lines.
 Verbose prints every command (`    INIT_HCA (0x0): ok`), the capabilities, the
 pages lent, the vport state and the data-path object numbers.
 
@@ -169,9 +170,9 @@ send WQE construction, CQE/EQE ownership, PTYS speeds and media, the standard FE
 read-modify-write, PDDR's module page, the per-port report line, the no-link diagnosis lines; `test/trace.rs`: the
 replay ring).
 
-On metal: only the Dell (C2NR0Q2) has an mlx5 card, and no pve VM can present
-one. A run boots the rustnic medium (or a stick) on the Dell with this driver,
-verbose; the master does the boot. The HW-CHECK lists in `docs/spec/` say
+On metal: only the Dell (C2NR0Q2) and forge1 (R6415) have an mlx5 card, and no
+pve VM can present one. A run boots the rustnic medium (or a stick) on one of
+them with this driver, verbose; the master does the boot. The HW-CHECK lists in `docs/spec/` say
 what that first run must answer.
 
 ## Licence

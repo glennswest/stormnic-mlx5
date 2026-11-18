@@ -61,7 +61,7 @@ from a pinned `STORMNIC_MLX5_REF` (stormbootx#73), and the
 Host tests: `scripts/test-host.sh` (UEFI-independent decoding: mailbox
 signatures, PAS layout, CQE/opcode decoding, PTYS speeds).
 
-Hardware: only the Dell (C2NR0Q2) has the card; no pve VM can present it.
+Hardware: only the Dell (C2NR0Q2) and forge1 have the card; no pve VM can present it.
 A run is booting the rustnic medium (or a stick) on the Dell — the master's
 job, coordinated on the issue (the Dell is held for shelf work, but a
 stormbootx boot test does not touch the shelf).
@@ -98,7 +98,7 @@ stormbootx boot test does not touch the shelf).
       (driver, BDF, MAC, PTYS media/speed, module, FEC, link; `FEC FAILED: …` loud). Layouts from mstflint's adb
       (owner: Mellanox docs), docs/spec/fec.md. Its HW-CHECKs come with the first metal run.
   - [x] Pin the commit in stormbootx (`STORMNIC_MLX5_REF`): 09b0615 asked for on stormbootx#202 (2026-11-14; sc-build passed).
-        stormbootx still pins 66de545; #1 waits on stormbootx#202 (pin + rustnic medium), then the master's canary boot.
+        (stormbootx has since pinned d11b572; see #1 below.)
   - [x] **Verified on metal, #8 closed (32ddb3f, serial 12):** `fec rs (standard for 25GBASE-SR, running rs)` on
         C2NR0Q2 02:00.0/.1 and forge1 84:00.1; forge1 84:00.0 has RS and no link → #13.
   - [x] First metal run (09b0615, C2NR0Q2): binds, PPLM written, PDDR module read, links up; the line said
@@ -130,4 +130,4 @@ stormbootx boot test does not touch the shelf).
 - [x] Said on stormbootx#73 (2026-11-15) that it passes, for the default `STORMNIC_DRIVERS`; #1 closed.
       Open after #1: #15 (ExitBootServices quiesce bounds, stormbootx#219).
 
-After #1: jumbo frames (#7), for stormbootx#165.
+Open: jumbo frames (#7, stormbootx#165), ExitBootServices quiesce bounds (#15, stormbootx#219), more device IDs (#9).

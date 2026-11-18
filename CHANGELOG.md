@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-18 (docs refresh)
+- **docs:** README/CLAUDE.md brought to the code since 2026-11-11: forge1 also has a card, #15 (unbounded quiesce wait) and #7 (MaxPacketSize 1500 until jumbo) named, stale pin note and report-section wording fixed. No doc promises what the code lacks beyond the open issues #7/#9/#15.
+
 ### 2026-11-15 (#12, verified)
 - **docs:** #12 closed: the receive fix (9d86045, `Receive`/`WaitForPacket` drain the CQ) took DHCP leases on metal,
   serial 14 on C2NR0Q2 and forge1 :81 (stormbootx#216); work plan marks it done.
