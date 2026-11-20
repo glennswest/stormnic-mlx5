@@ -173,9 +173,21 @@ impl Hca {
                 put64(&mut i, 0x10 + 8 * p, buf.dev + (p * PAGE) as u64);
             }
             let mut o = [0u8; 16];
-            if self.exec(pci, &i, &mut o).is_err() {
-                // SAFETY: the firmware refused the pages, so it never uses them.
-                unsafe { buf.free(pci) };
+            let r = self.cmdq.exec(pci, &i, &mut o);
+            if let Err(e) = self.report(pci, &i, r, false) {
+                if e.refused() {
+                    // SAFETY: the firmware completed the command with an
+                    // error (or never saw it), so it never uses the pages.
+                    unsafe { buf.free(pci) };
+                } else {
+                    // A timeout or a failed doorbell: the firmware may hold
+                    // the pages now or take them later (21b5b4e705e4). Count
+                    // them as lent, so `close` frees them only once they come
+                    // back, and otherwise leaves them allocated.
+                    say!("stormnic-mlx5: {pages} pages kept for the firmware: MANAGE_PAGES {e}");
+                    self.chunks.push(Chunk { buf });
+                    self.lent += pages;
+                }
                 return Err(Failed);
             }
             self.chunks.push(Chunk { buf });

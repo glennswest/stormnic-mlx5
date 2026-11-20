@@ -58,7 +58,7 @@ from a pinned `STORMNIC_MLX5_REF` (stormbootx#73), and the
 
 ## Test
 
-Host tests: `scripts/test-host.sh` (UEFI-independent decoding: mailbox
+Host tests: `scripts/test-host.sh` (UEFI-independent decoding: command errors that free memory, mailbox
 signatures, PAS layout, CQE/opcode decoding, PTYS speeds).
 
 Hardware: only the Dell (C2NR0Q2) and forge1 have the card; no pve VM can present it.
@@ -129,5 +129,8 @@ stormbootx boot test does not touch the shelf).
       sc-build passed). Values only a verbose trace shows wait on #13's verbose forge1 boot.
 - [x] Said on stormbootx#73 (2026-11-15) that it passes, for the default `STORMNIC_DRIVERS`; #1 closed.
       Open after #1: #15 (ExitBootServices quiesce bounds, stormbootx#219).
+
+- [ ] **#18 (P1, review finding 21b5b4e705e4):** keep MANAGE_PAGES pages on a timeout / failed doorbell
+      (`Error::refused`, `src/cmderr.rs`, host test `test/cmderr.rs`); sc-build, then close.
 
 Open: jumbo frames (#7, stormbootx#165), ExitBootServices quiesce bounds (#15, stormbootx#219), more device IDs (#9).

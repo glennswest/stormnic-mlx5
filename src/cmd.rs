@@ -37,40 +37,12 @@ const BLOCKS: usize = 16;
 /// Block stride: 1 KiB, the alignment `next_pointer[31:10]` needs (Table 98).
 const BLOCK_STRIDE: usize = 1024;
 
-/// How long a command may take. INIT_HCA and TEARDOWN_HCA take seconds on
-/// some firmware; the PRM gives no bound.
-const TIMEOUT_MS: u32 = 60_000;
-
 /// Largest command input and output this queue carries.
 pub const MAX_IN: usize = 16 + BLOCKS * mbox::DATA;
 pub const MAX_OUT: usize = MAX_IN;
 
-/// Why a command failed.
-#[derive(Clone, Copy, Debug)]
-pub enum Error {
-    /// The ownership bit stayed set (`TIMEOUT_MS`).
-    Timeout,
-    /// Delivery status in the entry (Table 96): the command never ran.
-    Delivery(u8),
-    /// Command status and syndrome in the output (Table 102, Table 128).
-    Status(u8, u32),
-    /// Too long for the mailboxes kept.
-    TooLong,
-    /// A PCI I/O access to the BAR failed.
-    Pci,
-}
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            Error::Timeout => write!(f, "timed out after {} s", TIMEOUT_MS / 1000),
-            Error::Delivery(s) => write!(f, "delivery status {s:#x} ({})", layout::delivery_name(s)),
-            Error::Status(s, syn) => write!(f, "status {s:#x} {} syndrome {syn:#010x}", layout::status_name(s)),
-            Error::TooLong => write!(f, "too long for the mailboxes"),
-            Error::Pci => write!(f, "PCI I/O access failed"),
-        }
-    }
-}
+pub use crate::cmderr::Error;
+use crate::cmderr::TIMEOUT_MS;
 
 pub struct Cmdq {
     /// The command queue page (4 KiB, aligned on its size, PRM 7.14.1).

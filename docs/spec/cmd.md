@@ -420,6 +420,14 @@ INTERNAL_ERR may not be returned); SW is expected to validate.
 "After TEARDOWN_HCA is acknowledged by the hardware, HCA will not attempt to
 access PCI on behalf of that ICM." When a PF is shut down, its VFs are too.
 
+A MANAGE_PAGES that gives pages and fails is freed only when the failure
+proves the firmware did not take them: a delivery or command status (the
+entry came back, Table 96/102), or the command was never posted. A timeout
+(the entry still hardware-owned) or a failed doorbell write leaves that
+unknown, so the pages are counted as lent and freed only if step 4 gets them
+back; otherwise they stay allocated with the rest (`hca.rs` `give_pages`,
+`cmderr.rs` `Error::refused`; #18).
+
 ---
 
 ## 5. ISSI (PRM 7.1, 12.3.10, 12.3.11)

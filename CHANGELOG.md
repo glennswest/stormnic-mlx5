@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-20 (#18)
+- **fix:** `give_pages` no longer frees the pages it offered when MANAGE_PAGES times out or its doorbell write fails: the firmware may hold them or take them later, so they are kept as lent and freed only when returned (finding 21b5b4e705e4). Only a delivery/command status or an unsent command frees them. `cmd::Error` moved to `src/cmderr.rs` with `refused()`, host-tested (`test/cmderr.rs`).
+
 ### 2026-11-18 (docs refresh)
 - **docs:** README/CLAUDE.md brought to the code since 2026-11-11: forge1 also has a card, #15 (unbounded quiesce wait) and #7 (MaxPacketSize 1500 until jumbo) named, stale pin note and report-section wording fixed. No doc promises what the code lacks beyond the open issues #7/#9/#15.
 

@@ -29,6 +29,7 @@ extern crate alloc;
 #[macro_use]
 mod console;
 mod cmd;
+mod cmderr;
 mod dma;
 mod eth;
 mod hca;
