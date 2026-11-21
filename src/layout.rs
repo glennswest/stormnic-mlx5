@@ -673,6 +673,7 @@ pub mod pddr {
 }
 
 /// How setting the standard FEC went (#8), for the report line.
+#[derive(Debug, PartialEq, Eq)]
 pub enum FecResult<'a> {
     /// The standard is the port's admin (set now or already): the speed's
     /// `fec_override_cap` and `fec_override_admin` as read back, and the
@@ -680,7 +681,45 @@ pub enum FecResult<'a> {
     Standard { cap: u32, admin: u32, active: Option<u32> },
     /// No FEC field for the speed (1G): nothing to set, the standard is none.
     NoField,
+    /// The firmware offers no override of the speed's standard (its cap).
+    NotOffered { field: &'static str, fec: &'static str, cap: u32 },
+    /// The speed's admin holds another value than its standard.
+    Admin { field: &'static str, admin: u32, want: u32 },
     Failed(&'a str),
+}
+
+impl FecResult<'_> {
+    pub fn failed(&self) -> bool {
+        matches!(self, FecResult::NotOffered { .. } | FecResult::Admin { .. } | FecResult::Failed(_))
+    }
+}
+
+/// The FEC as the line reports it, from a PPLM read made after the link
+/// wait (#22, finding b246593e3eb0): the field of the speed the port runs
+/// when the link is up (`eth_proto_oper`), else of the fastest it can
+/// (`eth_proto_capability`), checked against that speed's standard. A
+/// 40G-capable port running 25G is judged on the 25G field, not 10G/40G.
+pub fn fec_now(reg: Option<&[u8]>, cap: u32, oper: u32, up: bool) -> FecResult<'static> {
+    let Some(s) = media(cap, oper, up).and_then(|m| pplm::for_speed(m.speed)) else {
+        return FecResult::NoField;
+    };
+    let Some(r) = reg else {
+        return FecResult::Failed("PPLM read refused");
+    };
+    let (o, hi, lo) = s.cap;
+    let cap = get(r, o, hi, lo);
+    let admin = pplm::admin(r, s);
+    if admin == s.want {
+        let active = up.then(|| {
+            let (o, hi, lo) = pplm::ACTIVE;
+            get(r, o, hi, lo)
+        });
+        FecResult::Standard { cap, admin, active }
+    } else if !pplm::offered(r, s) {
+        FecResult::NotOffered { field: s.name, fec: s.fec, cap }
+    } else {
+        FecResult::Admin { field: s.name, admin, want: s.want }
+    }
 }
 
 /// What a bound port reports: the one line per port (#8).
@@ -729,6 +768,14 @@ impl core::fmt::Display for Report<'_> {
                         f.write_str("), ")?
                     }
                     FecResult::NoField => write!(f, "fec {std} (standard for {md}), ")?,
+                    FecResult::NotOffered { field, fec, cap } => write!(
+                        f,
+                        "FEC FAILED: standard {std} for {md} not set: the firmware offers no {fec} override for {field} (cap {cap:#x}), "
+                    )?,
+                    FecResult::Admin { field, admin, want } => write!(
+                        f,
+                        "FEC FAILED: standard {std} for {md} not set: {field} admin reads back {admin:#x}, not {want:#x}, "
+                    )?,
                     FecResult::Failed(why) => write!(f, "FEC FAILED: standard {std} for {md} not set: {why}, ")?,
                 }
             }

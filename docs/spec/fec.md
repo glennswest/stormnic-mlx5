@@ -50,15 +50,19 @@ same value" (both RS here).
 **What the driver does** (`eth::set_fec`, `layout::pplm`): before the port
 trains, read PPLM; for every speed whose cap offers its standard (10G/40G
 no FEC, 25G/50G/100G RS, PAM4 RS(544)), set that admin, keeping every other
-bit (read-modify-write); write it with local_port; read it back. The port's own
-speed (the fastest PTYS says it runs, or can) decides the line: its admin must
-read back as the standard, else `FEC FAILED: …` (also `alarm!`, with the
+bit (read-modify-write); write it with local_port; read it back. A refused
+read, write or read-back is `FEC FAILED: … refused` (also `alarm!`, with the
 trace). A speed whose cap does not offer its standard is left as it is
 (auto). PPLM, like PTYS's admin fields (PRM 11.1.2 note), takes effect at
 link training: if PAOS says the port was already administratively up and PPLM
 changed, the driver writes PAOS admin down (2) and up (1), each with `ase`.
-After the link wait, PPLM is read again for the line: the speed's cap and
-admin, and `fec_mode_active` when the link is up. A mode other than the
+After the link wait, PPLM is read again for the line (`layout::fec_now`,
+#22): the field of the speed the port **runs** (`eth_proto_oper`) when the
+link is up, else of the fastest it can (`eth_proto_capability`). So a
+40G-capable port running 25G is judged on the 25G field. Its admin must read
+as the standard, else `FEC FAILED: … not set: 25g admin reads back 0x0, not
+0x4` (or `the firmware offers no rs override for 25g (cap 0x1)`), with an
+`alarm!`; when it does, the line carries `fec_mode_active` if the link is up. A mode other than the
 standard is `FEC FAILED: standard rs for … set (PPLM 25g cap 0x7 admin 0x4),
 but the link runs fc (fec_mode_active 0x2)`, raw values on the line so the
 console alone says what the registers held.

@@ -256,11 +256,13 @@ fn write_reg(h: &mut Hca, pci: &mut PciIo, id: u32, data: &[u8]) -> Result<(), F
     h.exec(pci, &i, &mut o)
 }
 
-/// How the standard FEC went at bind (#8).
+/// How writing the standard FEC went at bind (#8). Whether the port's
+/// speed holds its standard is judged when the line is made (`fec`), at
+/// the speed it runs then (#22).
 enum Fec {
-    /// The port's own speed field in PPLM holds its standard.
-    Standard(&'static pplm::Speed),
-    NoField,
+    /// PPLM read, written where it differed, and read back.
+    Written,
+    /// PPLM refused a read, the write or the read-back.
     Failed(String),
 }
 
@@ -268,23 +270,21 @@ impl Eth {
     /// The report's FEC part, with `fec_mode_active` read now if the link is up.
     pub fn fec(&self, h: &mut Hca, pci: &mut PciIo) -> layout::FecResult<'_> {
         match &self.fec {
-            Fec::Standard(s) => {
-                // Read now, after the link wait: the speed's cap and admin
-                // as the firmware holds them, and what the link runs.
-                let r = read_reg(h, pci, pplm::ID, pplm::LEN).ok();
-                let (cap, admin) = r.as_deref().map_or((0, 0), |r| {
-                    let (o, hi, lo) = s.cap;
-                    (get(r, o, hi, lo), pplm::admin(r, s))
-                });
-                let active = r.as_deref().filter(|_| self.link).map(|r| {
-                    let (o, hi, lo) = pplm::ACTIVE;
-                    get(r, o, hi, lo)
-                });
-                trace!("  PPLM {} now: cap {cap:#x}, admin {admin:#x}, fec_mode_active {active:#x?}", s.name);
-                layout::FecResult::Standard { cap, admin, active }
-            }
-            Fec::NoField => layout::FecResult::NoField,
             Fec::Failed(why) => layout::FecResult::Failed(why),
+            Fec::Written => {
+                // Read now, after the link wait, and judged at the speed the
+                // link runs (or, with no link, the fastest it can).
+                let r = read_reg(h, pci, pplm::ID, pplm::LEN).ok();
+                let res = layout::fec_now(r.as_deref(), self.cap, self.oper, self.link);
+                if let layout::FecResult::Standard { cap, admin, active } = res {
+                    trace!("  PPLM now: cap {cap:#x}, admin {admin:#x}, fec_mode_active {active:#x?}");
+                }
+                if res.failed() {
+                    let at = layout::media(self.cap, self.oper, self.link).map_or("", |m| m.speed);
+                    alarm!("stormnic-mlx5: port {LOCAL_PORT}: FEC FAILED: the {at} field does not hold its standard");
+                }
+                res
+            }
         }
     }
     /// The card's own account of the port's link (#13, docs/spec/linkdiag.md):
@@ -614,7 +614,7 @@ pub fn open(h: &mut Hca, pci: &mut PciIo) -> Result<Eth, Failed> {
         speed: "",
         cap: 0,
         oper: 0,
-        fec: Fec::NoField,
+        fec: Fec::Written,
         module: None,
         dbr,
         eq: Ring { buf: eq, num: 0, log: LOG_EQ, cc: 0 },
@@ -893,20 +893,20 @@ fn paos_admin(admin: u32) -> [u8; 16] {
     d
 }
 
-/// Set each speed's standard FEC in PPLM (read-modify-write), read it back
-/// and judge the port's own speed: the fastest it runs or can. True if PPLM
-/// changed. A failure is loud (alarm!, with the trace) and kept for the line.
+/// Set each speed's standard FEC in PPLM (read-modify-write) and read it
+/// back. True if PPLM changed. A refused access is loud (alarm!, with the
+/// trace) and kept for the line; whether the port's own speed holds its
+/// standard is judged after the link wait (`Eth::fec`, #22).
 fn set_fec(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> bool {
     if let Ok(p) = read_reg(h, pci, REG_PTYS, 64) {
         e.cap = get(&p, 0x0c, 31, 0);
         e.oper = get(&p, 0x24, 31, 0);
     }
     let speed = layout::media(e.cap, e.oper, false).map_or("", |m| m.speed);
-    let Some(want) = pplm::for_speed(speed) else {
+    if pplm::for_speed(speed).is_none() {
         trace!("  FEC: no PPLM field for {speed:?}; its standard is none");
-        e.fec = Fec::NoField;
         return false;
-    };
+    }
     let Ok(mut reg) = read_reg(h, pci, pplm::ID, pplm::LEN) else {
         fail(e, "PPLM read refused".into());
         return false;
@@ -933,14 +933,8 @@ fn set_fec(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> bool {
             }
         }
     }
-    if pplm::admin(&reg, want) == want.want {
-        trace!("  FEC: {} {} ({})", want.name, want.fec, if changed { "set" } else { "already" });
-        e.fec = Fec::Standard(want);
-    } else if !pplm::offered(&reg, want) {
-        let (o, hi, lo) = want.cap;
-        fail(e, alloc::format!("the firmware offers no {} override for {} (cap {:#x})", want.fec, want.name, get(&reg, o, hi, lo)));
-    } else {
-        fail(e, alloc::format!("{} admin reads back {:#x}, not {:#x}", want.name, pplm::admin(&reg, want), want.want));
+    for s in pplm::SPEEDS.iter().filter(|s| pplm::offered(&reg, s)) {
+        trace!("  FEC: {} admin {:#x}, standard {} ({})", s.name, pplm::admin(&reg, s), s.fec, if changed { "set" } else { "already" });
     }
     changed
 }

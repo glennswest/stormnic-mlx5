@@ -144,9 +144,13 @@ together (`25GBASE-SR/KR/CR 25g capable`). The module is PDDR's module page.
 802.3 standard FEC in PPLM (25G, 50G and 100G RS(528); 10G and 40G none;
 PAM4 RS(544)) where the firmware offers it, reads it back, and takes the port
 down and up if it was already up. No configuration chooses it. If it cannot
-(`PPLM … refused`, the firmware does not offer the standard, a read-back that
+(`PPLM … refused`, the firmware does not offer the standard, an admin that
 differs, or a link running another FEC), the line says `FEC FAILED: …` and an
-alarm replays the trace. Details: `docs/spec/fec.md`.
+alarm replays the trace. It is judged after the link wait at the speed the
+port runs (with no link, the fastest it can), so a 40G-capable port running
+25G is checked on the 25G field (#22). A diagnostic register that does not
+answer (a PDDR page, PMTU) says `not answered` on its line and raises no
+alarm. Details: `docs/spec/fec.md`.
 
 **No link (#13):** under a port that has no link once bring-up is done, the
 card's own account of why, one indented line per register group: PDDR's

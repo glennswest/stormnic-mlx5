@@ -455,3 +455,51 @@ fn ptys_paos_pplm_pmlp() {
     assert_eq!(diag::lanes(None), 1);
     assert_eq!(diag::PMLP_ID, 0x5002);
 }
+
+/// A PPLM read: 10G/40G cap 0x1 admin `a40`, 25G cap `cap25` admin `a25`,
+/// fec_mode_active `active`.
+fn pplm_read(a40: u32, cap25: u32, a25: u32, active: u32) -> Vec<u8> {
+    let mut r = vec![0u8; pplm::LEN];
+    put(&mut r, 0x10, 3, 0, 0x1);
+    put(&mut r, 0x14, 3, 0, a40);
+    put(&mut r, 0x10, 7, 4, cap25);
+    put(&mut r, 0x14, 7, 4, a25);
+    put(&mut r, 0x0c, 23, 0, active);
+    r
+}
+
+#[test]
+fn fec_is_judged_at_the_speed_the_port_runs() {
+    // #22, finding b246593e3eb0: a 40G-capable port running 25G. The
+    // 10G/40G field holds its standard (none), the 25G field is still auto:
+    // that is a failure at 25G, not a pass judged on the 40G field.
+    let cap = 1 << 15 | 1 << 29; // 40GBASE-SR4, 25GBASE-SR
+    let oper = 1 << 29;
+    let r = pplm_read(0x1, 0x7, 0x0, 0x0);
+    assert_eq!(fec_now(Some(&r), cap, oper, true), FecResult::Admin { field: "25g", admin: 0, want: 0x4 });
+    // With the 25G admin at RS it passes, with what the link runs.
+    let r = pplm_read(0x1, 0x7, 0x4, 0x4);
+    assert_eq!(fec_now(Some(&r), cap, oper, true), FecResult::Standard { cap: 0x7, admin: 0x4, active: Some(0x4) });
+    // No link: the capability's fastest, 40G, and its field.
+    assert_eq!(fec_now(Some(&r), cap, 0, false), FecResult::Standard { cap: 0x1, admin: 0x1, active: None });
+    // The 25G field offers no RS.
+    let r = pplm_read(0x1, 0x1, 0x0, 0x0);
+    assert_eq!(fec_now(Some(&r), cap, oper, true), FecResult::NotOffered { field: "25g", fec: "rs", cap: 0x1 });
+    // A refused read, and a speed with no field (1G).
+    assert_eq!(fec_now(None, cap, oper, true), FecResult::Failed("PPLM read refused"));
+    assert_eq!(fec_now(None, 1 << 1, 1 << 1, true), FecResult::NoField);
+}
+
+#[test]
+fn fec_failures_on_the_line() {
+    let line = |fec| {
+        Report { version: "0.2.0", nic: "n", port: 1, mac: [0; 6], cap: 1 << 15 | 1 << 29, oper: 1 << 29, up: true, module: None, fec }
+            .to_string()
+    };
+    let a = line(FecResult::Admin { field: "25g", admin: 0, want: 0x4 });
+    assert!(a.contains("25GBASE-SR 25g, FEC FAILED: standard rs for 25GBASE-SR not set: 25g admin reads back 0x0, not 0x4, link up"), "{a}");
+    let n = line(FecResult::NotOffered { field: "25g", fec: "rs", cap: 0x1 });
+    assert!(n.contains("not set: the firmware offers no rs override for 25g (cap 0x1), link up"), "{n}");
+    assert!(FecResult::Admin { field: "25g", admin: 0, want: 4 }.failed());
+    assert!(!FecResult::NoField.failed());
+}
