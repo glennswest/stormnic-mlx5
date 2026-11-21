@@ -242,7 +242,7 @@ impl Child {
         });
         c.snp.mode = &raw mut c.mode;
         let mut st = c.state;
-        let r = publish::install(&mut Boot { c: &mut *c, agent, controller }, &mut st);
+        let r = publish::install(&mut Boot { c: &mut c, agent, controller }, &mut st);
         c.state = st;
         if let Err(Failed { status, kept }) = r {
             alarm!("  port {num}: child handle not published: {status:?}");
