@@ -44,11 +44,16 @@ say "PE TimeDateStamp: A $(stamp "$a"), B $(stamp "$b")"
 
 # Absolute build paths embedded in each image.
 paths="$work|/build/|/registry/src/|/\.cargo/|/rustc/|/home/"
+# grep's 1 is "none found", the clean result: only 2 and up are failures
+# (#22). The listing is cut by sed, which reads all of its input, so no
+# SIGPIPE reaches pipefail however many there are.
+found() { grep -E "$paths" || [ $? -eq 1 ]; }
 for x in "A $a" "B $b"; do
     f=${x#* }
-    n=$(strings -n 6 "$f" | grep -c -E "$paths" || true)
+    list=$(strings -n 6 "$f" | found | sort -u)
+    n=$(printf '%s' "$list" | grep -c '' || [ $? -eq 1 ])
     say "${x%% *}: $n embedded path string(s)"
-    strings -n 6 "$f" | grep -E "$paths" | sort -u | head -8 | sed 's/^/    /'
+    printf '%s\n' "$list" | sed -n '1,8s/^./    &/p'
 done
 
 if cmp -s "$a" "$b"; then
