@@ -171,9 +171,22 @@ fn pas(i: &mut [u8], at: usize, b: &DmaBuf) {
     }
 }
 
-fn dma(pci: &mut PciIo, bytes: usize, what: &str) -> Result<DmaBuf, Failed> {
-    DmaBuf::new(pci, bytes).map_err(|e| {
-        alarm!("stormnic-mlx5: {bytes} bytes for the {what}: {:?}", e.status());
+/// The data path's DMA memory, all or none (#22): what each is, and its size.
+const BUFFERS: [(&str, usize); 8] = [
+    ("doorbell records", PAGE),
+    ("EQ", 64 << LOG_EQ),
+    ("send CQ", 64 << LOG_TX_CQ),
+    ("receive CQ", 64 << LOG_RX_CQ),
+    ("SQ", wqe::WQEBB << LOG_SQ),
+    ("send buffers", TX_SLOTS * TX_BUF),
+    ("RQ", 16 << LOG_RQ),
+    ("receive buffers", RX_BUF << LOG_RQ),
+];
+
+fn buffers(pci: &mut PciIo) -> Result<[DmaBuf; 8], Failed> {
+    DmaBuf::all(pci, BUFFERS.map(|(_, n)| n)).map_err(|(i, e)| {
+        let (what, bytes) = BUFFERS[i];
+        alarm!("stormnic-mlx5: {bytes} bytes for the {what}: {:?}; the {i} before it freed", e.status());
         Failed
     })
 }
@@ -577,6 +590,7 @@ pub fn open(h: &mut Hca, pci: &mut PciIo) -> Result<Eth, Failed> {
         alarm!("stormnic-mlx5: no NIC receive flow table (nic_flow_table {}, ft_support {})", h.caps.nic_flow_table, h.caps.ft_support);
         return Err(Failed);
     }
+    let [dbr, eq, tx_cq, rx_cq, sq_buf, tx_bufs, rq_buf, rx_bufs] = buffers(pci)?;
     let mut e = Eth {
         mac: [0; 6],
         link: false,
@@ -585,14 +599,14 @@ pub fn open(h: &mut Hca, pci: &mut PciIo) -> Result<Eth, Failed> {
         oper: 0,
         fec: Fec::NoField,
         module: None,
-        dbr: dma(pci, PAGE, "doorbell records")?,
-        eq: Ring { buf: dma(pci, 64 << LOG_EQ, "EQ")?, num: 0, log: LOG_EQ, cc: 0 },
-        tx_cq: Ring { buf: dma(pci, 64 << LOG_TX_CQ, "send CQ")?, num: 0, log: LOG_TX_CQ, cc: 0 },
-        rx_cq: Ring { buf: dma(pci, 64 << LOG_RX_CQ, "receive CQ")?, num: 0, log: LOG_RX_CQ, cc: 0 },
-        sq_buf: dma(pci, wqe::WQEBB << LOG_SQ, "SQ")?,
-        tx_bufs: dma(pci, TX_SLOTS * TX_BUF, "send buffers")?,
-        rq_buf: dma(pci, 16 << LOG_RQ, "RQ")?,
-        rx_bufs: dma(pci, RX_BUF << LOG_RQ, "receive buffers")?,
+        dbr,
+        eq: Ring { buf: eq, num: 0, log: LOG_EQ, cc: 0 },
+        tx_cq: Ring { buf: tx_cq, num: 0, log: LOG_TX_CQ, cc: 0 },
+        rx_cq: Ring { buf: rx_cq, num: 0, log: LOG_RX_CQ, cc: 0 },
+        sq_buf,
+        tx_bufs,
+        rq_buf,
+        rx_bufs,
         tis: 0,
         sqn: 0,
         rqn: 0,

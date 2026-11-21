@@ -38,6 +38,7 @@ mod pci;
 mod publish;
 mod snp;
 mod trace;
+mod unwind;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;

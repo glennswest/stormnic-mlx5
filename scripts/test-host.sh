@@ -4,7 +4,7 @@
 set -euo pipefail
 out=${CARGO_TARGET_DIR:-target}
 mkdir -p "$out"
-for t in trace layout cmderr publish; do
+for t in trace layout cmderr publish unwind; do
     rustc --edition=2021 -D warnings --test "test/$t.rs" -o "$out/$t-tests"
     "$out/$t-tests"
 done

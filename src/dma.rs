@@ -51,6 +51,17 @@ impl DmaBuf {
         }
     }
 
+    /// `N` buffers of `bytes[i]` each, all or none: one that cannot be had
+    /// frees those before it (#22). The error names which one failed.
+    pub fn all<const N: usize>(pci: &mut PciIo, bytes: [usize; N]) -> Result<[DmaBuf; N], (usize, uefi::Error)> {
+        crate::unwind::all_or_none(
+            pci,
+            |pci, i| DmaBuf::new(pci, bytes[i]),
+            // SAFETY: none of them has been given to the device yet.
+            |pci, b: DmaBuf| unsafe { b.free(pci) },
+        )
+    }
+
     /// Unmap and free.
     ///
     /// # Safety

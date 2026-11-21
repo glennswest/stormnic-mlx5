@@ -70,9 +70,7 @@ impl Cmdq {
     /// device (PRM 8.2 step 2): high dword first, then the low dword with
     /// nic_interface 0 (full driver).
     pub fn new(pci: &mut PciIo) -> uefi::Result<Cmdq> {
-        let queue = DmaBuf::new(pci, 4096)?;
-        let inbox = DmaBuf::new(pci, BLOCKS * BLOCK_STRIDE)?;
-        let outbox = DmaBuf::new(pci, BLOCKS * BLOCK_STRIDE)?;
+        let [queue, inbox, outbox] = DmaBuf::all(pci, [4096, BLOCKS * BLOCK_STRIDE, BLOCKS * BLOCK_STRIDE]).map_err(|(_, e)| e)?;
         Ok(Cmdq { queue, inbox, outbox, token: 0, stuck: false })
     }
 
