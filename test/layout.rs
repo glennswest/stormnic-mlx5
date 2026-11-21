@@ -458,7 +458,7 @@ fn ptys_paos_pplm_pmlp() {
 
 /// A PPLM read: 10G/40G cap 0x1 admin `a40`, 25G cap `cap25` admin `a25`,
 /// fec_mode_active `active`.
-fn pplm_read(a40: u32, cap25: u32, a25: u32, active: u32) -> Vec<u8> {
+fn pplm_fec(a40: u32, cap25: u32, a25: u32, active: u32) -> Vec<u8> {
     let mut r = vec![0u8; pplm::LEN];
     put(&mut r, 0x10, 3, 0, 0x1);
     put(&mut r, 0x14, 3, 0, a40);
@@ -475,15 +475,15 @@ fn fec_is_judged_at_the_speed_the_port_runs() {
     // that is a failure at 25G, not a pass judged on the 40G field.
     let cap = 1 << 15 | 1 << 29; // 40GBASE-SR4, 25GBASE-SR
     let oper = 1 << 29;
-    let r = pplm_read(0x1, 0x7, 0x0, 0x0);
+    let r = pplm_fec(0x1, 0x7, 0x0, 0x0);
     assert_eq!(fec_now(Some(&r), cap, oper, true), FecResult::Admin { field: "25g", admin: 0, want: 0x4 });
     // With the 25G admin at RS it passes, with what the link runs.
-    let r = pplm_read(0x1, 0x7, 0x4, 0x4);
+    let r = pplm_fec(0x1, 0x7, 0x4, 0x4);
     assert_eq!(fec_now(Some(&r), cap, oper, true), FecResult::Standard { cap: 0x7, admin: 0x4, active: Some(0x4) });
     // No link: the capability's fastest, 40G, and its field.
     assert_eq!(fec_now(Some(&r), cap, 0, false), FecResult::Standard { cap: 0x1, admin: 0x1, active: None });
     // The 25G field offers no RS.
-    let r = pplm_read(0x1, 0x1, 0x0, 0x0);
+    let r = pplm_fec(0x1, 0x1, 0x0, 0x0);
     assert_eq!(fec_now(Some(&r), cap, oper, true), FecResult::NotOffered { field: "25g", fec: "rs", cap: 0x1 });
     // A refused read, and a speed with no field (1G).
     assert_eq!(fec_now(None, cap, oper, true), FecResult::Failed("PPLM read refused"));
