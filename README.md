@@ -94,7 +94,12 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
 - **Installs:** `EFI_DRIVER_BINDING_PROTOCOL` on its image handle (version
   0x10). For each started function, a child handle with
   `EFI_DEVICE_PATH_PROTOCOL` (PCI path + MAC node, IfType 1) and
-  `EFI_SIMPLE_NETWORK_PROTOCOL` (revision 0x00010000).
+  `EFI_SIMPLE_NETWORK_PROTOCOL` (revision 0x00010000), installed and
+  uninstalled together (Install/UninstallMultipleProtocolInterfaces). The
+  child is all or nothing (#19): a failed `BY_CHILD_CONTROLLER` open fails
+  `Start`, and a child the firmware will not let go of (a consumer still has
+  its SNP open) stays published and allocated, NIC with it, until a later
+  `Stop` withdraws it.
 - **SNP:** MaxPacketSize 1500 (jumbo, 9000, is #7), MediaHeaderSize 14, receive filters unicast,
   broadcast and up to 16 multicast addresses, applied in software (the
   hardware delivers every frame the vport takes), a frame over 1518 bytes is
@@ -104,7 +109,9 @@ is meant to be byte-reproducible like stormnic-mlx4's (`scripts/rustc-remap.sh`,
   self-loopback off); one that is, is dropped and logged once.
   `Receive` and `WaitForPacket` drain the receive CQ themselves, so a frame
   is handed up as soon as it lands, whether or not the caller calls
-  `GetStatus` (#12).
+  `GetStatus` (#12). `WaitForPacket`'s notify function reads the receive CQ
+  only; page requests and port changes on the EQ (firmware commands) are
+  handled by `Receive` and `GetStatus` (#19).
   `Statistics`, `StationAddress` and `NvData` return `UNSUPPORTED`.
 - **Consumes:** `EFI_PCI_IO_PROTOCOL` (`BY_DRIVER`, and `BY_CHILD_CONTROLLER`
   per child): config space, BAR 0 reads/writes (32- and 64-bit), DMA common

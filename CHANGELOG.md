@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-11-20 (#19)
+- **fix:** The child handle is published and withdrawn all or nothing (`src/publish.rs`, host test `test/publish.rs`). Device path and SNP go in and out together (Install/UninstallMultipleProtocolInterfaces); a refused uninstall leaves the child published, its `WaitForPacket` open and `BY_CHILD_CONTROLLER` reopened, and it is never freed (finding aa46b24c4f4f). A failed `BY_CHILD_CONTROLLER` open now fails the install, undoing it (5d95b0b4f0e3). `Start` creates the ExitBootServices event before publishing the child, so no rollback follows a published child; a half-published child that cannot be removed is kept with its NIC for `Stop`.
+- **fix:** `WaitForPacket`'s notify function drains the receive CQ only, no EQ: page requests and port changes run firmware commands, which stay in `Receive`/`GetStatus`. `Receive` and `WaitForPacket` polling the CQ (findings f8d23c18e243, 7fcd645f1d79) has been in since 9d86045 (#12).
+
 ### 2026-11-20 (#18)
 - **fix:** `give_pages` no longer frees the pages it offered when MANAGE_PAGES times out or its doorbell write fails: the firmware may hold them or take them later, so they are kept as lent and freed only when returned (finding 21b5b4e705e4). Only a delivery/command status or an unsent command frees them. `cmd::Error` moved to `src/cmderr.rs` with `refused()`, host-tested (`test/cmderr.rs`).
 

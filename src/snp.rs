@@ -18,11 +18,12 @@ use uefi_raw::protocol::device_path::DevicePathProtocol;
 use uefi_raw::protocol::network::snp::{
     InterruptStatus, NetworkMode, NetworkState, NetworkStatistics, ReceiveFlags, SimpleNetworkProtocol,
 };
-use uefi_raw::table::boot::{EventType, InterfaceType, Tpl};
-use uefi_raw::{Boolean, Event, Handle, IpAddress, MacAddress};
+use uefi_raw::table::boot::{EventType, Tpl};
+use uefi_raw::{Boolean, Event, Guid, Handle, IpAddress, MacAddress};
 
 use crate::eth::{self, Mac, Send};
 use crate::pci::PciIo;
+use crate::publish::{self, Failed, Firmware};
 use uefi::Identify;
 use crate::{bs, Nic, TplGuard, OPEN_BY_CHILD_CONTROLLER};
 
@@ -53,6 +54,8 @@ pub struct Child {
     nic: *mut Nic,
     pub handle: Handle,
     path: Vec<u8>,
+    /// What of it is published (`publish.rs`).
+    state: publish::State,
     rx_logged: u32,
     tx_logged: u32,
     /// An own frame looped back has been logged.
@@ -100,9 +103,82 @@ fn child_path(parent: *const DevicePathProtocol, mac: [u8; 6]) -> Vec<u8> {
     path
 }
 
+/// The boot services behind `publish::Firmware`, for one child.
+struct Boot<'a> {
+    c: &'a mut Child,
+    agent: Handle,
+    controller: Handle,
+}
+
+fn result(st: Status) -> Result<(), Status> {
+    if st.is_error() {
+        Err(st)
+    } else {
+        Ok(())
+    }
+}
+
+static PATH_GUID: Guid = DevicePathProtocol::GUID;
+static SNP_GUID: Guid = SimpleNetworkProtocol::GUID;
+
+impl Firmware for Boot<'_> {
+    type Status = Status;
+
+    fn create_event(&mut self) -> Result<(), Status> {
+        let ctx: *mut Child = &raw mut *self.c;
+        let mut ev: Event = ptr::null_mut();
+        // SAFETY: the child is boxed and is not freed while the event is open
+        // (`publish::State::free`).
+        result(unsafe { (bs().create_event)(EventType::NOTIFY_WAIT, Tpl::CALLBACK, Some(wait_notify), ctx.cast(), &mut ev) })?;
+        self.c.snp.wait_for_packet = ev;
+        Ok(())
+    }
+
+    fn close_event(&mut self) {
+        let _ = unsafe { (bs().close_event)(self.c.snp.wait_for_packet) };
+        self.c.snp.wait_for_packet = ptr::null_mut();
+    }
+
+    fn install(&mut self) -> Result<(), Status> {
+        let mut h: Handle = ptr::null_mut();
+        let path: *const c_void = self.c.path.as_ptr().cast();
+        let snp: *const c_void = (&raw const self.c.snp).cast();
+        // SAFETY: GUID/interface pairs ending with a null GUID (UEFI 2.10
+        // 7.3, InstallMultipleProtocolInterfaces); both interfaces live in
+        // the child, which is kept while they are installed.
+        result(unsafe {
+            (bs().install_multiple_protocol_interfaces)(&mut h, &raw const PATH_GUID, path, &raw const SNP_GUID, snp, ptr::null::<Guid>())
+        })?;
+        self.c.handle = h;
+        Ok(())
+    }
+
+    fn uninstall(&mut self) -> Result<(), Status> {
+        let path: *const c_void = self.c.path.as_ptr().cast();
+        let snp: *const c_void = (&raw const self.c.snp).cast();
+        // SAFETY: as in `install`; on a failure the firmware reinstalls what
+        // it had removed, so both stay or both go.
+        result(unsafe {
+            (bs().uninstall_multiple_protocol_interfaces)(self.c.handle, &raw const PATH_GUID, path, &raw const SNP_GUID, snp, ptr::null::<Guid>())
+        })
+    }
+
+    fn open_by_child(&mut self) -> Result<(), Status> {
+        let mut iface: *mut c_void = ptr::null_mut();
+        let (c, agent, child) = (self.controller, self.agent, self.c.handle);
+        result(unsafe { (bs().open_protocol)(c, &PciIo::GUID, &mut iface, agent, child, OPEN_BY_CHILD_CONTROLLER) })
+    }
+
+    fn close_by_child(&mut self) {
+        let _ = unsafe { (bs().close_protocol)(self.controller, &PciIo::GUID, self.agent, self.c.handle) };
+    }
+}
+
 impl Child {
-    /// The child handle of `nic`: device path and SNP installed, the
-    /// parent's PCI I/O opened `BY_CHILD_CONTROLLER`.
+    /// The child handle of `nic`: `WaitForPacket`, device path and SNP
+    /// installed, the parent's PCI I/O opened `BY_CHILD_CONTROLLER`; all of
+    /// it or none (`publish.rs`). A failure that left the interfaces
+    /// installed hands the child back with the error: it must be kept.
     ///
     /// # Safety
     /// `nic` outlives the child; `parent` is the controller's device path.
@@ -111,7 +187,7 @@ impl Child {
         parent: *const DevicePathProtocol,
         agent: Handle,
         controller: Handle,
-    ) -> Result<Box<Child>, Status> {
+    ) -> Result<Box<Child>, (Status, Option<Box<Child>>)> {
         let n = unsafe { &mut *nic };
         let (num, mac, link) = (n.eth.num(), n.eth.mac(), n.eth.link_up());
         let mut c = Box::new(Child {
@@ -157,6 +233,7 @@ impl Child {
             nic,
             handle: ptr::null_mut(),
             path: child_path(parent, mac),
+            state: publish::State::default(),
             rx_logged: 0,
             tx_logged: 0,
             own_logged: false,
@@ -164,43 +241,18 @@ impl Child {
             status_calls: 0,
         });
         c.snp.mode = &raw mut c.mode;
-        let ctx: *mut Child = &raw mut *c;
-
-        let bs = bs();
-        let mut ev: Event = ptr::null_mut();
-        // SAFETY: the child is boxed and lives until `uninstall` closes the event.
-        let st = unsafe { (bs.create_event)(EventType::NOTIFY_WAIT, Tpl::CALLBACK, Some(wait_notify), ctx.cast(), &mut ev) };
-        if st.is_error() {
-            alarm!("  port {num}: WaitForPacket event: {st:?}");
-            return Err(st);
-        }
-        c.snp.wait_for_packet = ev;
-
-        let mut h: Handle = ptr::null_mut();
-        let path_guid = DevicePathProtocol::GUID;
-        let snp_guid = SimpleNetworkProtocol::GUID;
-        let st = unsafe {
-            (bs.install_protocol_interface)(&mut h, &path_guid, InterfaceType::NATIVE_INTERFACE, c.path.as_ptr().cast())
-        };
-        if st.is_error() {
-            alarm!("  port {num}: device path install: {st:?}");
-            let _ = unsafe { (bs.close_event)(ev) };
-            return Err(st);
-        }
-        let st = unsafe { (bs.install_protocol_interface)(&mut h, &snp_guid, InterfaceType::NATIVE_INTERFACE, (&raw const c.snp).cast()) };
-        if st.is_error() {
-            alarm!("  port {num}: SNP install: {st:?}");
-            unsafe {
-                let _ = (bs.uninstall_protocol_interface)(h, &path_guid, c.path.as_ptr().cast());
-                let _ = (bs.close_event)(ev);
+        let mut st = c.state;
+        let r = publish::install(&mut Boot { c: &mut *c, agent, controller }, &mut st);
+        c.state = st;
+        if let Err(Failed { status, kept }) = r {
+            alarm!("  port {num}: child handle not published: {status:?}");
+            if kept {
+                // Its interfaces stayed installed: the firmware still points
+                // into it, so it lives on, to be withdrawn by Stop.
+                alarm!("  port {num}: and its interfaces could not be removed; the child is kept");
+                return Err((status, Some(c)));
             }
-            return Err(st);
-        }
-        c.handle = h;
-        let mut iface: *mut c_void = ptr::null_mut();
-        let st = unsafe { (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, h, OPEN_BY_CHILD_CONTROLLER) };
-        if st.is_error() {
-            say!("  port {num}: PCI I/O by child: {st:?}");
+            return Err((status, None));
         }
         trace!(
             "  port {num}: SNP installed on a child handle, MAC {}, media {}",
@@ -211,24 +263,20 @@ impl Child {
     }
 
     /// Take the child down: close the parent's PCI I/O, uninstall the SNP
-    /// and the device path. False (and the child left as it was) when the
-    /// firmware refuses, e.g. because MNP will not let go of the SNP.
+    /// and the device path together, close `WaitForPacket`. False, and the
+    /// child left published as it was, when the firmware refuses, e.g.
+    /// because MNP will not let go of the SNP: then it must not be freed.
     pub fn uninstall(&mut self, agent: Handle, controller: Handle) -> bool {
-        let bs = bs();
-        let (path_guid, snp_guid) = (DevicePathProtocol::GUID, SimpleNetworkProtocol::GUID);
-        unsafe {
-            let _ = (bs.close_protocol)(controller, &PciIo::GUID, agent, self.handle);
-            let st = (bs.uninstall_protocol_interface)(self.handle, &snp_guid, (&raw const self.snp).cast());
-            if st.is_error() {
-                let mut iface: *mut c_void = ptr::null_mut();
-                let _ = (bs.open_protocol)(controller, &PciIo::GUID, &mut iface, agent, self.handle, OPEN_BY_CHILD_CONTROLLER);
-                say!("stormnic-mlx5: SNP uninstall refused ({st:?})");
-                return false;
+        let mut st = self.state;
+        let r = publish::uninstall(&mut Boot { c: self, agent, controller }, &mut st);
+        self.state = st;
+        match r {
+            Ok(()) => true,
+            Err(e) => {
+                say!("stormnic-mlx5: SNP uninstall refused ({e:?}); the child is kept");
+                false
             }
-            let _ = (bs.uninstall_protocol_interface)(self.handle, &path_guid, self.path.as_ptr().cast());
-            let _ = (bs.close_event)(self.snp.wait_for_packet);
         }
-        true
     }
 
     fn port(&mut self) -> &mut eth::Eth {
@@ -670,8 +718,10 @@ unsafe extern "efiapi" fn wait_notify(event: Event, ctx: *mut c_void) {
         return;
     }
     // Notify functions run at TPL_CALLBACK, which every SNP call holds, so
-    // this never runs inside one (#12: the CQ, not only what GetStatus queued).
-    c.poll();
+    // this never runs inside one (#12: the CQ, not only what GetStatus
+    // queued). The receive CQ only: the EQ's page requests and port changes
+    // are firmware commands, which wait for Receive or GetStatus (#19).
+    c.port().poll_receive();
     if c.port().rx_ready() {
         let _ = unsafe { (bs().signal_event)(event) };
     }

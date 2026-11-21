@@ -35,6 +35,7 @@ mod eth;
 mod hca;
 mod layout;
 mod pci;
+mod publish;
 mod snp;
 mod trace;
 
@@ -274,35 +275,41 @@ unsafe extern "efiapi" fn start(
     }));
     // SAFETY: `nic` is leaked until `stop` takes it back.
     let n = unsafe { &mut *nic };
-    match unsafe { snp::Child::install(nic, path.cast(), agent, controller) } {
-        Ok(c) => n.children.push(c),
-        Err(_) => {
-            alarm!("{tag}: Start: no SNP installed, releasing the NIC");
-            let n = *unsafe { Box::from_raw(nic) };
-            let pci = unsafe { &mut *n.pci };
-            let mut hca = n.hca;
-            eth::close(n.eth, &mut hca, pci);
-            hca::close(hca, pci);
-            close_pci();
-            return Status::DEVICE_ERROR;
-        }
-    }
-    let st = unsafe {
-        (bs.create_event)(EventType::SIGNAL_EXIT_BOOT_SERVICES, Tpl::NOTIFY, Some(exit_boot_services), nic.cast(), &mut n.ebs)
-    };
-    if st.is_error() {
-        // Without it the device would keep DMA running into the OS's memory.
-        alarm!("{tag}: Start: ExitBootServices event: {st:?}; releasing the NIC");
-        for c in n.children.iter_mut() {
-            c.uninstall(agent, controller);
-        }
+    let release = |nic: *mut Nic| {
         let n = *unsafe { Box::from_raw(nic) };
         let pci = unsafe { &mut *n.pci };
         let mut hca = n.hca;
         eth::close(n.eth, &mut hca, pci);
         hca::close(hca, pci);
         close_pci();
+    };
+    // The ExitBootServices event before the child, so nothing that can fail
+    // comes after the child is published (#19).
+    let st = unsafe {
+        (bs.create_event)(EventType::SIGNAL_EXIT_BOOT_SERVICES, Tpl::NOTIFY, Some(exit_boot_services), nic.cast(), &mut n.ebs)
+    };
+    if st.is_error() {
+        // Without it the device would keep DMA running into the OS's memory.
+        alarm!("{tag}: Start: ExitBootServices event: {st:?}; releasing the NIC");
+        release(nic);
         return Status::DEVICE_ERROR;
+    }
+    match unsafe { snp::Child::install(nic, path.cast(), agent, controller) } {
+        Ok(c) => n.children.push(c),
+        Err((_, None)) => {
+            alarm!("{tag}: Start: no SNP installed, releasing the NIC");
+            let _ = unsafe { (bs.close_event)(n.ebs) };
+            release(nic);
+            return Status::DEVICE_ERROR;
+        }
+        Err((_, Some(c))) => {
+            // A child the firmware still holds points at this NIC: keep both
+            // (and PCI I/O BY_DRIVER), so a later Stop can withdraw them.
+            alarm!("{tag}: Start: the half-published child is kept, and the NIC with it");
+            n.children.push(c);
+            b.nics.push(nic);
+            return Status::DEVICE_ERROR;
+        }
     }
     b.nics.push(nic);
     // The default console output: one line per port (#8, as stormnic-mlx4#16):

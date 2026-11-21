@@ -359,6 +359,12 @@ impl Eth {
         self.poll_rx();
     }
 
+    /// Drain the receive CQ alone: reads of host memory and one doorbell
+    /// record write, no command, so it may run in a notify function (#19).
+    pub fn poll_receive(&mut self) {
+        self.poll_rx();
+    }
+
     fn poll_eq(&mut self, h: &mut Hca, pci: &mut PciIo) {
         let mut any = false;
         let mut pages = false;
