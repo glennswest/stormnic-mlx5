@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-11-21 (#22)
+- **fix:** host test helper `pplm_fec` no longer clashes with `pplm_read` (#24); sc-build of bb740a7 passed (check.sh), repro-check of c71015c reproducible. Pin asked on stormbootx#250.
 - **fix:** `Cmdq::new` and `Eth::open` allocate their DMA buffers all or none (`DmaBuf::all`, `src/unwind.rs`, host test `test/unwind.rs`): a failed allocation frees the ones before it instead of leaking them (finding 0368e57226f3).
 - **fix:** `scripts/repro-check.sh`: an image with no embedded path (grep's status 1) reaches the byte comparison; the listing no longer risks SIGPIPE under pipefail; a real failure still stops it (289b417c50a6).
 - **fix:** Optional register reads (the diagnosis' PDDR pages, PTYS/PAOS/PPLM/PMLP, PMTU, the PDDR module page) go through `try_exec`: a refusal is a trace line and `not answered`, never an alarm (7a31e5a3418d).

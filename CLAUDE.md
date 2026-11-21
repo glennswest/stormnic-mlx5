@@ -140,9 +140,11 @@ stormbootx boot test does not touch the shelf).
       WaitForPacket's notify polls the receive CQ only (no firmware command in a notify function).
       Done in 5a56137 + e2b23d3 (sc-build passed, 24+3+6 host tests); pin asked on stormbootx#250.
 
-- [ ] **#22 (P3, review, 4 minor):** DMA buffers all or none in `Cmdq::new`/`Eth::open` (0368e57226f3,
+- [x] **#22 (P3, review, 4 minor):** DMA buffers all or none in `Cmdq::new`/`Eth::open` (0368e57226f3,
       `src/unwind.rs`, `test/unwind.rs`); `repro-check.sh` reaches `cmp` with no embedded path (289b417c50a6);
       diagnosis/optional register reads quiet (7a31e5a3418d); FEC judged at the speed the port runs, after the link
-      wait (b246593e3eb0, `pplm::judge`, `test/layout.rs`).
+      wait (b246593e3eb0, `layout::fec_now`, `test/layout.rs`).
+      Done in c824edd, cd068ee, 32a7434, c71015c + bb740a7 (test helper name clash, #24); sc-build passed
+      (check.sh: 26+3+3+6+3 host tests; repro-check: identical images, f32cb637…). Pin asked on stormbootx#250.
 
 Open: jumbo frames (#7, stormbootx#165), ExitBootServices quiesce bounds (#15, stormbootx#219), more device IDs (#9).
