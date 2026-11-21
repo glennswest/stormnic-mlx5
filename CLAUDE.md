@@ -133,4 +133,10 @@ stormbootx boot test does not touch the shelf).
 - [ ] **#18 (P1, review finding 21b5b4e705e4):** keep MANAGE_PAGES pages on a timeout / failed doorbell
       (`Error::refused`, `src/cmderr.rs`, host test `test/cmderr.rs`); sc-build, then close.
 
+- [ ] **#19 (P1, review):** child install/uninstall all or nothing (aa46b24c4f4f, 5d95b0b4f0e3): path + SNP by
+      Install/UninstallMultipleProtocolInterfaces, a failed BY_CHILD open fails the install, a child the firmware
+      will not let go of is kept (never freed), the ExitBootServices event before the child; the order in UEFI-free
+      `src/publish.rs`, host test `test/publish.rs`. Receive polls the CQ since 9d86045 (f8d23c18e243, 7fcd645f1d79);
+      WaitForPacket's notify polls the receive CQ only (no firmware command in a notify function).
+
 Open: jumbo frames (#7, stormbootx#165), ExitBootServices quiesce bounds (#15, stormbootx#219), more device IDs (#9).
