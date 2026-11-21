@@ -215,6 +215,26 @@ fn read_reg_at(
     len: usize,
     index: &[(usize, u32, u32, u32)],
 ) -> Result<Vec<u8>, Failed> {
+    let i = read_input(id, len, index);
+    let mut o = alloc::vec![0u8; 0x10 + len];
+    h.exec(pci, &i, &mut o)?;
+    o.drain(..0x10);
+    Ok(o)
+}
+
+/// A read whose register may not be there (a diagnostic page, PMTU, the
+/// module page): a refusal goes to the trace only, never an alarm, and the
+/// caller says "not answered" (#22, finding 7a31e5a3418d).
+fn read_optional(h: &mut Hca, pci: &mut PciIo, id: u32, len: usize, index: &[(usize, u32, u32, u32)]) -> Option<Vec<u8>> {
+    let i = read_input(id, len, index);
+    let mut o = alloc::vec![0u8; 0x10 + len];
+    h.try_exec(pci, &i, &mut o).ok()?;
+    o.drain(..0x10);
+    Some(o)
+}
+
+/// ACCESS_REG's input for a read of `id` (docs/spec/cmd.md 6.20).
+fn read_input(id: u32, len: usize, index: &[(usize, u32, u32, u32)]) -> Vec<u8> {
     let mut i = input(op::ACCESS_REG, 1, 0x10 + len);
     put(&mut i, 0x08, 15, 0, id);
     // local_port is the index field of every port register (HW-CHECK 15).
@@ -225,10 +245,7 @@ fn read_reg_at(
     for &(off, hi, lo, v) in index {
         put(&mut i, 0x10 + off, hi, lo, v);
     }
-    let mut o = alloc::vec![0u8; 0x10 + len];
-    h.exec(pci, &i, &mut o)?;
-    o.drain(..0x10);
-    Ok(o)
+    i
 }
 
 fn write_reg(h: &mut Hca, pci: &mut PciIo, id: u32, data: &[u8]) -> Result<(), Failed> {
@@ -279,7 +296,7 @@ impl Eth {
         let (o, hi, lo) = pddr::PAGE_SELECT;
         let page = |h: &mut Hca, pci: &mut PciIo, n: u32, ext: u32| {
             let (eo, ehi, elo) = diag::MODULE_INFO_EXT;
-            read_reg_at(h, pci, pddr::ID, pddr::LEN, &[(o, hi, lo, n), (eo, ehi, elo, ext)]).ok()
+            read_optional(h, pci, pddr::ID, pddr::LEN, &[(o, hi, lo, n), (eo, ehi, elo, ext)])
         };
         let trouble = page(h, pci, diag::PAGE_TROUBLESHOOTING, 0);
         let oper = page(h, pci, diag::PAGE_OPERATION, 0);
@@ -287,10 +304,10 @@ impl Eth {
         let dbm = page(h, pci, pddr::MODULE_INFO_PAGE, 0);
         let uw = page(h, pci, pddr::MODULE_INFO_PAGE, 1);
         let flags = page(h, pci, diag::PAGE_MODULE_FLAGS, 0);
-        let ptys = read_reg(h, pci, REG_PTYS, 64).ok();
-        let paos = read_reg(h, pci, REG_PAOS, 16).ok();
-        let pplm = read_reg(h, pci, pplm::ID, pplm::LEN).ok();
-        let pmlp = read_reg(h, pci, diag::PMLP_ID, diag::PMLP_LEN).ok();
+        let ptys = read_optional(h, pci, REG_PTYS, 64, &[]);
+        let paos = read_optional(h, pci, REG_PAOS, 16, &[]);
+        let pplm = read_optional(h, pci, pplm::ID, pplm::LEN, &[]);
+        let pmlp = read_optional(h, pci, diag::PMLP_ID, diag::PMLP_LEN, &[]);
         let lanes = diag::lanes(pmlp.as_deref());
         let or = |r: Option<String>, what: &str| r.unwrap_or_else(|| format!("{what}: not answered"));
         alloc::vec![
@@ -819,7 +836,7 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
 
     // What the port passes (PMTU, PRM Table 106), for the first runs: the unit
     // is a HW-CHECK (docs/spec/cmd.md) and RX_BUF assumes it stays under 10 KiB.
-    if let Ok(p) = read_reg(h, pci, REG_PMTU, 16) {
+    if let Some(p) = read_optional(h, pci, REG_PMTU, 16, &[]) {
         let oper = get(&p, 0x0c, 31, 16);
         trace!("  PMTU: max {}, admin {}, oper {oper}", get(&p, 0x04, 31, 16), get(&p, 0x08, 31, 16));
         if oper as usize > RX_BUF {
@@ -829,9 +846,9 @@ fn bring_up(e: &mut Eth, h: &mut Hca, pci: &mut PciIo) -> Result<(), Failed> {
 
     // What is plugged in (PDDR module info page, docs/spec/fec.md 3).
     let (o, hi, lo) = pddr::PAGE_SELECT;
-    match read_reg_at(h, pci, pddr::ID, pddr::LEN, &[(o, hi, lo, pddr::MODULE_INFO_PAGE)]) {
-        Ok(r) => e.module = pddr::module(&r),
-        Err(_) => trace!("  PDDR module info: not answered"),
+    match read_optional(h, pci, pddr::ID, pddr::LEN, &[(o, hi, lo, pddr::MODULE_INFO_PAGE)]) {
+        Some(r) => e.module = pddr::module(&r),
+        None => trace!("  PDDR module info: not answered"),
     }
     if let Some(m) = &e.module {
         trace!("  module: {m}");
